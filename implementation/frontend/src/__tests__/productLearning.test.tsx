@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductApp from '../ProductApp';
 import { apiClient } from '../services/apiClient';
@@ -11,7 +11,7 @@ const catalogMock = { version: 'mock-v1', tracks: [{ id: 'python', module: 'Prog
 ] }] };
 const progressMock = { lessons_completed: 0, attempts: 0, topics_mastered: 0, practice_sessions: 0, interviews_completed: 0, study_seconds: 0, streak: 0, completed_lesson_ids: [], achievements: [], recommendations: [], recent_activity: [] };
 const sessionMock = { id: 'mock-session', lesson_id: 'variables', epoch: 0, mode: 'practice', state: 'active', question: catalogMock.tracks[0].lessons[0].question, coach_messages: [], answer_count: 0, deadline: null };
-let fetcher: ReturnType<typeof vi.fn>;
+let fetcher: ReturnType<typeof vi.fn<(url: string, options?: RequestInit) => Promise<Response>>>;
 let currentProgress: Record<string, unknown>;
 let currentSession: Record<string, unknown>;
 
@@ -128,13 +128,13 @@ describe('navigation contracts', () => {
     expect(within(main).getByRole('link', { name: 'Learn' })).toHaveAttribute('href', '/learn');
     const handled = document.createElement('a'); handled.href = '/progress'; handled.textContent = 'Handled'; handled.addEventListener('click', e => e.preventDefault()); document.body.appendChild(handled);
     fireEvent.click(handled); expect(location.pathname).toBe('/learn'); handled.remove();
-    fireEvent.click(screen.getByRole('link', { name: 'Settings', exact: true }));
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
     expect(location.pathname).toBe('/settings');
   });
   it('responds to same-path query changes', async () => {
     show('/settings?category=appearance');
-    expect(await screen.findByRole('heading', { name: 'Appearance', exact: true })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
     act(() => { history.pushState({}, '', '/settings?category=privacy'); window.dispatchEvent(new PopStateEvent('popstate')); });
-    expect(await screen.findByRole('heading', { name: 'Privacy', exact: true })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Privacy' })).toBeInTheDocument();
   });
 });

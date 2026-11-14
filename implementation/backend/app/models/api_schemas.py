@@ -21,6 +21,8 @@ from .enums import (
     SessionState,
     SpecVersion,
     SpeechDegradationStatus,
+    SpeechLocale,
+    TTSVoice,
 )
 
 
@@ -120,6 +122,8 @@ class CreateSessionRequest(_StrictDTO):
     spec_version: SpecVersion
     language_mode: LanguageMode = LanguageMode.EN_IN
     interaction_mode: InteractionMode = InteractionMode.VOICE
+    voice: TTSVoice | None = None
+    spoken_language: SpeechLocale | None = None
 
 
 class CreateSessionResponse(_StrictDTO):
@@ -130,6 +134,8 @@ class CreateSessionResponse(_StrictDTO):
     state: SessionState
     learning_state: LearningState
     spec_acknowledged: bool
+    voice: TTSVoice | None = None
+    spoken_language: SpeechLocale | None = None
 
 
 class CodeUpdateRequest(_StrictDTO):
@@ -331,9 +337,9 @@ class TTSRequest(_StrictDTO):
     playback_id: str | None = Field(default=None, max_length=128)
     revision: RevisionRef | None = None
     text: str = Field(min_length=1, max_length=8000)
-    model: str = Field(default="timbre-v3.0", min_length=1, max_length=64)
-    voice: str = Field(default="Avinash", min_length=1, max_length=64)
-    language: str = Field(default="en-IN", min_length=2, max_length=32)
+    model: Literal["timbre-v3.0"] = "timbre-v3.0"
+    voice: TTSVoice = TTSVoice.AVINASH
+    language: SpeechLocale | Literal["auto"] = SpeechLocale.EN_IN
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     audio_config: TTSAudioConfig = Field(default_factory=TTSAudioConfig)
     cache_scope: Literal["PUBLIC_GENERIC", "SESSION_SCOPED"] = "SESSION_SCOPED"
@@ -407,3 +413,5 @@ class TTSPlaybackRequest(_StrictDTO):
     revision: RevisionRef
     artifact_id: UUID
     hint_level: HintLevel = HintLevel.DIAGNOSTIC_QUESTION
+    language: SpeechLocale | Literal["auto"] | None = None
+    voice: TTSVoice | None = None

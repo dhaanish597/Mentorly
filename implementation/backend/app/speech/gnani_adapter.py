@@ -88,6 +88,8 @@ class GnaniTransportError(RuntimeError):
         self.retryable = retryable
         self.dispatched_chars = 0
         self.completed_chars = 0
+        self.dispatched_calls: int | None = None
+        self.audio_emitted = False
 
 
 @dataclass(frozen=True)
@@ -102,11 +104,12 @@ class AssembledTTSSynthesis:
     speakable_chunks: list[str]
     total_chars_billed: int
     latency_ms: int
+    provider_calls: int = 0
 
 
 def select_gnani_stt_format(language_mode: LanguageMode) -> str:
     """Return `'transcribe'` for `en-IN` and `'codemix'` for `ta-IN,en-IN` (never `'formatted'`)."""
-    if language_mode == LanguageMode.TA_IN_EN_IN:
+    if "," in LanguageMode(language_mode).value:
         return "codemix"
     return "transcribe"
 
@@ -467,9 +470,11 @@ class GnaniSpeechAdapter:
         )
         effective_req_id = provider_req_id or client_req_id
 
-        raw_transcript = body.get(
-            "transcript", body.get("text", body.get("result", ""))
-        )
+        if 'transcript' not in body and 'text' not in body:
+            raise GnaniTransportError(
+                "Gnani STT omitted its transcript field; usage is unconfirmed."
+            )
+        raw_transcript = body.get('transcript') if 'transcript' in body else body['text']
         if not isinstance(raw_transcript, str) or len(raw_transcript) > 4000:
             raise GnaniTransportError(
                 "Gnani STT returned an invalid or oversized transcript; usage is unconfirmed."
@@ -581,6 +586,8 @@ class GnaniSpeechAdapter:
         all_pcm_parts: list[bytes] = []
         dispatched_chars = 0
         completed_chars = 0
+        dispatched_calls = 0
+        audio_emitted = False
 
         try:
             for segment_index, chunk_text in enumerate(speakable_chunks):
@@ -619,6 +626,7 @@ class GnaniSpeechAdapter:
                     sample_rate=req.audio_config.sample_rate,
                 )
                 dispatched_chars += len(chunk_text)
+                dispatched_calls += 1
                 async with client.stream(
                     "POST",
                     self.tts_endpoint,
@@ -645,6 +653,7 @@ class GnaniSpeechAdapter:
                                 "TTS synthesis cancelled via barge-in.", retryable=False
                             )
                         for audio_event in stream_parser.feed(byte_chunk):
+                            audio_emitted = audio_emitted or bool(audio_event.audio_b64)
                             if on_event is not None:
                                 await on_event(audio_event)
 
@@ -662,6 +671,8 @@ class GnaniSpeechAdapter:
         except GnaniTransportError as exc:
             exc.dispatched_chars = dispatched_chars
             exc.completed_chars = completed_chars
+            exc.dispatched_calls = dispatched_calls
+            exc.audio_emitted = audio_emitted
             raise
         except httpx.HTTPError as exc:
             error = GnaniTransportError(
@@ -671,6 +682,8 @@ class GnaniSpeechAdapter:
             )
             error.dispatched_chars = dispatched_chars
             error.completed_chars = completed_chars
+            error.dispatched_calls = dispatched_calls
+            error.audio_emitted = audio_emitted
             raise error from exc
         finally:
             if owns_client:
@@ -718,6 +731,7 @@ class GnaniSpeechAdapter:
             speakable_chunks=speakable_chunks,
             total_chars_billed=total_chars_billed,
             latency_ms=latency_ms,
+            provider_calls=dispatched_calls,
         )
 
     async def iter_tts_audio_events(

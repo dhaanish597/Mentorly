@@ -14,6 +14,24 @@ from backend.app.speech.audio_utils import generate_sine_wav_bytes
 from backend.app.speech.gnani_adapter import GnaniSpeechAdapter, GnaniTransportError, build_ws_stt_init_frame
 from backend.app.speech.routes import router
 
+def test_product_voice_resolver_rejects_invalid_and_respects_independent_preferences():
+    from backend.app.speech.capabilities import resolve_tts_selection, session_tts_selection, speech_capabilities
+    for locale in LOCALES:
+        result=resolve_tts_selection(locale)
+        assert result['language']==locale and result['voice']=='Avinash'
+    assert resolve_tts_selection('hi-IN,en-IN')['language']=='auto'
+    assert resolve_tts_selection('hi-IN,en-IN',spoken_language='bn-IN',voice='Shivani')['language']=='bn-IN'
+    assert resolve_tts_selection('en-IN',spoken_language='auto')['language']=='auto'
+    assert session_tts_selection({'language_mode':'ta-IN,en-IN'})['language']=='auto'
+    assert session_tts_selection({'language_mode':'hi-IN','spoken_language':'bn-IN','voice':'Shivani'})['voice']=='Shivani'
+    assert session_tts_selection({})['language']=='en-IN'
+    with pytest.raises(ValueError):
+        resolve_tts_selection(model='timbre-v2.5')
+    with pytest.raises(ValueError):
+        resolve_tts_selection(voice='Nalini')
+    assert speech_capabilities()['configured'] is False
+
+
 LOCALES = ('en-IN', 'hi-IN', 'ta-IN', 'te-IN', 'kn-IN', 'ml-IN', 'bn-IN', 'gu-IN', 'mr-IN', 'pa-IN')
 VOICES = ('Avinash', 'Shivani', 'Lakshmi', 'Kalpana', 'Shubham', 'Prakash', 'Devansh', 'Yashraj', 'Chetana', 'Vasudha', 'Riyaa', 'Tarika', 'Harshad')
 

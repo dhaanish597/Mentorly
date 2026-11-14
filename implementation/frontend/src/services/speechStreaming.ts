@@ -18,7 +18,10 @@ export class PcmFrameWriter {
     this.pending = bytes.slice(offset);
   }
   finish(): void {
-    if (this.pending.length) { const frame = new Uint8Array(1024); frame.set(this.pending); this.send(frame); this.bytesSent += 1024; this.pending = new Uint8Array(0); }
+    if (this.pending.length) {
+      const frame = new Uint8Array(Math.min(1024, 960_000 - this.bytesSent));
+      frame.set(this.pending); this.send(frame); this.bytesSent += frame.length; this.pending = new Uint8Array(0);
+    }
   }
 }
 

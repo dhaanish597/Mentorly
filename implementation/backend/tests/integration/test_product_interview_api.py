@@ -83,6 +83,7 @@ def test_followups_depend_on_actual_answer_and_each_policy_differs(harness):
         r = c.post(f"/api/v1/interviews/sessions/{s['id']}/answers", headers=h,
                    json={'expected_epoch': 1, 'answer': 'because the premise is measured; for example I checked 10 cases; O(n) time; failure recovery; src/main.py:12; tradeoff latency'}).json()
         texts.append(r['question']['text'])
+        c.post(f"/api/v1/interviews/sessions/{s['id']}/finish", headers=h, json={'expected_epoch': r['epoch']})
     assert len(set(texts)) == 4
     a, b = create(c, h).json(), create(c, h).json()
     def answer(s, text):
@@ -140,3 +141,78 @@ def test_concurrent_answers_only_one_wins_and_client_cannot_forge_evidence(harne
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda i: c.post(url, headers=h, json={'expected_epoch': 1, 'answer': f'answer {i}'}).status_code, range(2)))
     assert sorted(results) == [200, 409]
+
+
+def test_questions_exhaust_naturally_and_completion_hook_is_transactional(harness):
+    c, path, h, _ = harness
+    called = []
+    def hook(conn, workspace_id, payload):
+        assert conn.in_transaction
+        called.append((workspace_id, payload))
+    c.app.state.interview_completion_hook = hook
+    s = create(c, h, type='cs', duration_minutes=5).json()
+    url = f"/api/v1/interviews/sessions/{s['id']}"
+    while s['state'] == 'active':
+        s = c.post(url+'/answers', headers=h, json={'expected_epoch': s['epoch'], 'answer': 'because mechanisms; example a process; tradeoff resources'}).json()
+    assert s['report']['completion_reason'] == 'questions_exhausted'
+    assert s['report']['answered_count'] == 4
+    assert len(called) == 1 and called[0][0] == h['X-Workspace-Id']
+    assert called[0][1]['correctness_assessed'] is False
+    c.get(url, headers=h)
+    assert len(called) == 1
+
+
+def test_optional_hook_failure_rolls_back_end_and_report(harness):
+    c, path, h, _ = harness
+    s = create(c, h).json()
+    def broken_hook(conn, workspace_id, payload):
+        raise RuntimeError('learning unavailable')
+    c.app.state.interview_completion_hook = broken_hook
+    with pytest.raises(RuntimeError, match='learning unavailable'):
+        c.post(f"/api/v1/interviews/sessions/{s['id']}/finish", headers=h, json={'expected_epoch': 1})
+    with open_connection(path) as conn:
+        assert conn.execute('SELECT state FROM interview_sessions WHERE id=?', (s['id'],)).fetchone()[0] == 'active'
+        assert conn.execute('SELECT COUNT(*) FROM interview_reports').fetchone()[0] == 0
+
+
+def test_stale_finish_still_finalizes_timeout_without_recording_input(harness):
+    c, path, h, _ = harness
+    s = create(c, h).json()
+    with open_connection(path) as conn:
+        conn.execute("UPDATE interview_sessions SET deadline_at='2000-01-01T00:00:00+00:00' WHERE id=?", (s['id'],))
+    res = c.post(f"/api/v1/interviews/sessions/{s['id']}/finish", headers=h, json={'expected_epoch': 0})
+    assert res.status_code == 200
+    assert res.json()['completion_reason'] == 'timeout'
+    with open_connection(path) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM interview_reports').fetchone()[0] == 1
+
+
+def test_workspace_and_configuration_bounds_and_rate_limit(harness):
+    c, path, h, _ = harness
+    assert create(c, {**h, 'X-Workspace-Token': 'invalid'}).status_code == 401
+    for changes in ({'topics': ['a', 'a']}, {'topics': ['a'*81]}, {'duration_minutes': True}, {'duration_minutes': 61}):
+        assert create(c, h, **changes).status_code == 422
+    for _ in range(3):
+        assert create(c, h).status_code == 200
+    assert create(c, h).status_code == 429
+    with open_connection(path) as conn:
+        conn.execute("UPDATE studio_workspaces SET deleted_at='2026-01-01' WHERE id=?", (h['X-Workspace-Id'],))
+    assert c.get('/api/v1/interviews/catalog', headers=h).status_code == 401
+
+
+def test_sweeper_and_frozen_report_survive_new_app_and_catalog_abstention(harness, monkeypatch):
+    from backend.app.interviews import catalog, service
+    from backend.app.interviews.routes import router
+    c, path, h, _ = harness
+    s = create(c, h, difficulty='advanced').json()
+    assert 'alternative' in s['question']['text'].lower()
+    with open_connection(path) as conn:
+        conn.execute("UPDATE interview_sessions SET deadline_at='2000-01-01T00:00:00+00:00' WHERE id=?", (s['id'],))
+    assert service.sweep_expired(path) == 1
+    assert service.sweep_expired(path) == 0
+    app = FastAPI(); app.state.settings = SimpleNamespace(database_path=path); app.include_router(router, prefix='/api/v1')
+    with TestClient(app) as restarted:
+        report = restarted.get(f"/api/v1/interviews/sessions/{s['id']}", headers=h).json()['report']
+        assert report['completion_reason'] == 'timeout'
+    monkeypatch.setattr(catalog, 'exercise_metadata', lambda: [])
+    assert create(c, h).status_code == 422

@@ -78,6 +78,19 @@ def _utc_future_iso(hours: int = 24) -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
 
 
+def accounted_speech_totals(conn: sqlite3.Connection) -> tuple[float, int]:
+    """Global audio budgets count legacy, studio and common-module reservations."""
+    seconds = 0.0
+    chars = 0
+    for table in ('usage_reservations', 'studio_speech_usage', 'module_speech_usage'):
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+            continue
+        row = conn.execute(f"SELECT COALESCE(SUM(stt_seconds),0),COALESCE(SUM(tts_chars),0) FROM {table} WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN')").fetchone()
+        seconds += row[0]
+        chars += row[1]
+    return seconds, chars
+
+
 class SpeechGatekeeper:
     """Single-concurrency dispatcher and durable SQLite usage ledger for Gnani Speech APIs."""
 
@@ -369,9 +382,9 @@ class SpeechGatekeeper:
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN stt_seconds ELSE 0.0 END), 0.0),
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN tts_chars ELSE 0 END), 0),
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN tts_chars ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN operation_type = 'STT' AND status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN operation_type = 'TTS' AND status = 'COMMITTED' AND COALESCE(cache_hit, 0) = 0 AND COALESCE(uncertain, 0) = 0 THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN 1 ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN operation_type = 'STT' AND status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN request_count ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN operation_type = 'TTS' AND status = 'COMMITTED' AND COALESCE(cache_hit, 0) = 0 AND COALESCE(uncertain, 0) = 0 THEN request_count ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN request_count ELSE 0 END), 0)
                 FROM usage_ledger;
                 """
             ).fetchone()
@@ -421,17 +434,7 @@ class SpeechGatekeeper:
             self._conn.execute("BEGIN IMMEDIATE;")
             try:
                 self._ensure_session_row_in_tx(session_id)
-                row = self._conn.execute(
-                    """
-                    SELECT
-                        COALESCE(SUM(stt_seconds), 0.0),
-                        COALESCE(SUM(tts_chars), 0)
-                    FROM usage_reservations
-                    WHERE status IN ('RESERVED', 'COMMITTED');
-                    """
-                ).fetchone()
-                accounted_stt_sec = float(row[0] if row else 0.0)
-                accounted_tts_chars = int(row[1] if row else 0)
+                accounted_stt_sec, accounted_tts_chars = accounted_speech_totals(self._conn)
 
                 if (
                     operation_type == "STT"
@@ -453,6 +456,8 @@ class SpeechGatekeeper:
                 if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='studio_speech_usage'").fetchone():
                     day_count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM studio_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (now_iso,)).fetchone()[0]
                     day_count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM studio_speech_deleted_daily WHERE day=date(?)", (now_iso,)).fetchone()[0]
+                if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_usage'").fetchone():
+                    day_count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM module_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (now_iso,)).fetchone()[0]
                 if ((self.per_session_stt_seconds is not None and session_usage[0]+est_stt_sec > self.per_session_stt_seconds)
                     or (self.per_session_tts_chars is not None and session_usage[1]+est_tts_chars > self.per_session_tts_chars)
                     or (self.global_daily_call_limit is not None and day_count + provider_calls > self.global_daily_call_limit)):
@@ -501,8 +506,9 @@ class SpeechGatekeeper:
         actual_stt_sec: float = 0.0,
         actual_tts_chars: int = 0,
         cache_hit: bool = False,
+        actual_provider_calls: int | None = None,
     ) -> None:
-        effective_committed = committed or uncertain
+        effective_committed = committed or uncertain or bool(actual_provider_calls)
         final_status = "COMMITTED" if effective_committed else "RELEASED"
         uncertain_flag = 1 if uncertain else 0
         recorded_stt = actual_stt_sec if effective_committed else 0.0
@@ -557,6 +563,12 @@ class SpeechGatekeeper:
                         (now_iso, reservation_id, reservation_id),
                     )
 
+                if actual_provider_calls is not None:
+                    self._conn.execute('UPDATE usage_reservations SET request_count=? WHERE id=?',
+                                       (actual_provider_calls, reservation_id))
+                else:
+                    count_row = self._conn.execute('SELECT request_count FROM usage_reservations WHERE id=?', (reservation_id,)).fetchone()
+                    actual_provider_calls = 0 if cache_hit else (count_row[0] if count_row else 1)
                 self._conn.execute(
                     """
                     INSERT INTO usage_ledger (
@@ -574,7 +586,7 @@ class SpeechGatekeeper:
                         operation_type,
                         recorded_stt,
                         recorded_tts,
-                        0 if cache_hit else 1,
+                        actual_provider_calls,
                         1 if cache_hit else 0,
                         uncertain_flag,
                         final_status,
@@ -613,6 +625,27 @@ class SpeechGatekeeper:
         self._active_count = max(0, self._active_count - 1)
         self._semaphore.release()
 
+    def _reserve_retry_calls(self, reservation_id: str, total_calls: int) -> None:
+        """Re-admit physical retries atomically against the shared daily call budget."""
+        with self._db_lock:
+            self._conn.execute('BEGIN IMMEDIATE')
+            try:
+                today = _utc_now_iso()
+                count = self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM usage_reservations WHERE status IN ('RESERVED','COMMITTED') AND id!=? AND date(created_at)=date(?)", (reservation_id, today)).fetchone()[0]
+                if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='studio_speech_usage'").fetchone():
+                    count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM studio_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (today,)).fetchone()[0]
+                    count += self._conn.execute('SELECT COALESCE(SUM(request_count),0) FROM studio_speech_deleted_daily WHERE day=date(?)', (today,)).fetchone()[0]
+                if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_usage'").fetchone():
+                    count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM module_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (today,)).fetchone()[0]
+                if self.global_daily_call_limit is not None and count + total_calls > self.global_daily_call_limit:
+                    raise SpeechQuotaExhaustedError('Speech retry would exceed the daily budget; continue with text.')
+                self._conn.execute('UPDATE usage_reservations SET request_count=? WHERE id=?', (total_calls, reservation_id))
+                self._conn.execute('COMMIT')
+            except BaseException:
+                if self._conn.in_transaction:
+                    self._conn.execute('ROLLBACK')
+                raise
+
     async def execute_stt(
         self,
         req: STTRequest,
@@ -642,6 +675,7 @@ class SpeechGatekeeper:
         committed = False
         uncertain = False
         actual_sec = 0.0
+        physical_calls = 0
         dispatched = False
         try:
             await self._acquire_single_slot()
@@ -660,6 +694,7 @@ class SpeechGatekeeper:
                     if assert_current is not None:
                         assert_current()
                     dispatched = True
+                    physical_calls += 1
                     result = await (transcribe_fn or self.adapter.transcribe_rest)(
                         req, wav_bytes
                     )
@@ -677,11 +712,14 @@ class SpeechGatekeeper:
                     self._degradation = SpeechDegradationStatus.HEALTHY
                     return result
                 except GnaniTransportError as exc:
+                    if exc.status_code is not None:
+                        dispatched = False  # Known rejection, not unknown billed audio.
                     if (
                         exc.status_code == 429
                         and exc.retryable
                         and attempt < self.max_429_retries
                     ):
+                        self._reserve_retry_calls(res_id, physical_calls + 1)
                         attempt += 1
                         await asyncio.sleep(
                             self.retry_backoff_base_sec * (2 ** (attempt - 1))
@@ -725,6 +763,7 @@ class SpeechGatekeeper:
                 committed=committed,
                 uncertain=uncertain,
                 actual_stt_sec=actual_sec,
+                actual_provider_calls=physical_calls,
             )
 
     async def execute_tts(
@@ -743,7 +782,7 @@ class SpeechGatekeeper:
             turn_generation=req.turn_generation,
             operation_type="TTS",
             est_tts_chars=est_chars,
-            provider_calls=0 if cached is not None else 1,
+            provider_calls=0 if cached is not None else len(speakable_chunks),
         )
 
         slot_acquired = False
@@ -751,6 +790,7 @@ class SpeechGatekeeper:
         uncertain = False
         billed_chars = 0
         was_cache_hit = False
+        physical_calls = 0
         dispatched = False
         try:
             await self._acquire_single_slot()
@@ -764,7 +804,7 @@ class SpeechGatekeeper:
                 try:
                     if assert_current is not None:
                         assert_current()
-                    dispatched = True
+                    dispatched = cached is None
                     kwargs = {
                         "is_cancelled": lambda: (
                             (req.session_id, req.turn_generation)
@@ -777,6 +817,7 @@ class SpeechGatekeeper:
                     committed = True
                     billed_chars = synthesis.total_chars_billed
                     was_cache_hit = synthesis.cache_hit
+                    physical_calls += 0 if was_cache_hit else (getattr(synthesis, 'provider_calls', 0) or len(speakable_chunks))
 
                     # Post-provider freshness recheck (Fix P2-06)
                     if (req.session_id, req.turn_generation) in self._cancelled_turns:
@@ -787,12 +828,17 @@ class SpeechGatekeeper:
                     self._degradation = SpeechDegradationStatus.HEALTHY
                     return synthesis
                 except GnaniTransportError as exc:
+                    physical_calls += exc.dispatched_calls if exc.dispatched_calls is not None else 1
+                    if exc.status_code is not None and exc.completed_chars == 0 and not exc.audio_emitted:
+                        dispatched = False
                     if (
                         exc.status_code == 429
                         and exc.completed_chars == 0
+                        and not exc.audio_emitted
                         and exc.retryable
                         and attempt < self.max_429_retries
                     ):
+                        self._reserve_retry_calls(res_id, physical_calls + len(speakable_chunks))
                         attempt += 1
                         await asyncio.sleep(
                             self.retry_backoff_base_sec * (2 ** (attempt - 1))
@@ -840,4 +886,5 @@ class SpeechGatekeeper:
                 uncertain=uncertain,
                 actual_tts_chars=billed_chars,
                 cache_hit=was_cache_hit,
+                actual_provider_calls=physical_calls if not uncertain else max(physical_calls, len(speakable_chunks)),
             )

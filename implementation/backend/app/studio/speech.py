@@ -13,10 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.core.config import validated_credential
 from backend.app.db.migrations import open_connection
 from backend.app.models.api_schemas import STTRequest, TTSRequest
-from backend.app.models.enums import LanguageMode
+from backend.app.models.enums import LanguageMode, SpeechLocale, TTSVoice
+from backend.app.speech.capabilities import session_tts_selection
 from backend.app.speech.audio_utils import inspect_and_validate_stt_wav
-from backend.app.speech.gatekeeper import SpeechBusyError
-from backend.app.speech.gnani_adapter import GnaniSpeechAdapter, GnaniTransportError
+from backend.app.speech.gatekeeper import SpeechBusyError, accounted_speech_totals
+from backend.app.speech.gnani_adapter import GnaniSpeechAdapter, GnaniTransportError, select_gnani_stt_format
 from backend.app.speech.pre_tts_normalizer import to_speakable
 from backend.app.studio.routes import auth, encode, iso
 
@@ -97,7 +98,7 @@ def event_text(db,session,epoch,sequence):
 
 class NeutralAdapter(GnaniSpeechAdapter):
     def build_rest_stt_form_fields(self,req):
-        return {'model':'prisma-v3.0','language_code':req.language_mode.value,'format':'codemix' if req.language_mode==LanguageMode.TA_IN_EN_IN else 'transcribe','keyterms':'[]','topic':'Engineering architecture discussion'}, []
+        return {'model':'prisma-v3.0','language_code':req.language_mode.value,'format':select_gnani_stt_format(req.language_mode),'keyterms':'[]','topic':'Engineering architecture discussion'}, []
 
 
 class STTBody(BaseModel):
@@ -111,6 +112,8 @@ class TTSBody(BaseModel):
     model_config=ConfigDict(extra='forbid')
     epoch:int=Field(ge=1)
     event_sequence:int=Field(ge=1)
+    language:SpeechLocale | None=None
+    voice:TTSVoice | None=None
 
 
 def reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls):
@@ -129,7 +132,13 @@ def reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls
         count=db.execute("SELECT COALESCE(SUM(request_count),0) FROM studio_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)",(today,)).fetchone()[0]
         count+=db.execute("SELECT COALESCE(SUM(request_count),0) FROM studio_speech_deleted_daily WHERE day=date(?)",(today,)).fetchone()[0]
         count+=db.execute("SELECT COALESCE(SUM(request_count),0) FROM usage_reservations WHERE status IN ('RESERVED','COMMITTED') AND date(created_at)=date(?)",(today,)).fetchone()[0]
-        if usage[0]+seconds>settings.max_stt_seconds_per_session or usage[1]+chars>settings.max_tts_chars_per_session or count+calls>settings.global_daily_call_limit:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_usage'").fetchone():
+            count+=db.execute("SELECT COALESCE(SUM(request_count),0) FROM module_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)",(today,)).fetchone()[0]
+        total_seconds,total_chars=accounted_speech_totals(db)
+        gate=req.app.state.speech.gatekeeper
+        if (usage[0]+seconds>settings.max_stt_seconds_per_session or usage[1]+chars>settings.max_tts_chars_per_session
+            or total_seconds+seconds>gate.max_stt_seconds_budget or total_chars+chars>gate.max_tts_chars_budget
+            or count+calls>settings.global_daily_call_limit):
             raise HTTPException(429,'Speech quota exhausted; use text')
         rid=str(uuid.uuid4())
         db.execute('INSERT INTO studio_speech_usage VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(rid,sid,epoch,operation,key,digest,seconds,chars,calls,'RESERVED',today,today))
@@ -212,6 +221,9 @@ async def tts(req:Request,sid:str,data:TTSBody,authorization:str=Header(default=
     with closing(open_connection(req.app.state.settings.database_path)) as db:
         session=auth(db,sid,authorization)
         text=event_text(db,session,data.epoch,data.event_sequence)
+        selection=session_tts_selection(session,model=req.app.state.settings.gnani_tts_model,
+                                         default_voice=req.app.state.settings.gnani_tts_voice,
+                                         language=data.language,voice=data.voice)
     def check_current():
         with closing(open_connection(req.app.state.settings.database_path)) as db:
             session=auth(db,sid,authorization)
@@ -220,7 +232,7 @@ async def tts(req:Request,sid:str,data:TTSBody,authorization:str=Header(default=
     chunks=to_speakable(text)
     chars=sum(len(c) for c in chunks)
     digest=hashlib.sha256(encode(data.model_dump()).encode()).hexdigest()
-    request=TTSRequest(session_id=sid,turn_generation=data.epoch,text=text,model=req.app.state.settings.gnani_tts_model,voice=req.app.state.settings.gnani_tts_voice)
+    request=TTSRequest(session_id=sid,turn_generation=data.epoch,text=text,**selection)
     result=await run_provider(req,sid,authorization,data.epoch,x_idempotency_key,'TTS',digest,0,chars,len(chunks),
                               lambda:adapter(req).synthesize_tts(request),check_current)
     return {'audio_base64':base64.b64encode(result.wav_bytes).decode(),'content_type':'audio/wav','epoch':data.epoch}

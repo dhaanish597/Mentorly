@@ -12,7 +12,7 @@ describe('functional product settings', () => {
   it('exposes categories and persists real audio preferences', () => {
     render(<ProductApp />);
     expect(screen.getByRole('heading', { name: 'Voice & Audio' })).toBeInTheDocument();
-    for (const name of ['Voice & Audio', 'Language', 'Learning', 'Appearance', 'Privacy', 'Advanced']) expect(screen.getByRole('link', { name, exact: true })).toBeInTheDocument();
+    for (const name of ['Voice & Audio', 'Language', 'Learning', 'Appearance', 'Privacy', 'Advanced']) expect(screen.getByRole('link', { name })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Text-only mode' }));
     fireEvent.change(screen.getByRole('slider', { name: 'Playback volume' }), { target: { value: '0.4' } });
     expect(loadAudioPreferences().textOnly).toBe(true);

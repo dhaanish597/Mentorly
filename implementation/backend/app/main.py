@@ -105,7 +105,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
                 }, headers={'Cache-Control': 'no-store'})
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
-            if request.url.path.startswith(("/api/v1/studio", "/api/v1/repos")):
+            if request.url.path.startswith(("/api/v1/studio", "/api/v1/repos", "/api/v1/learning", "/api/v1/interviews", "/api/v1/module-voice")):
                 response.headers["Cache-Control"] = "no-store"
                 response.headers["Pragma"] = "no-cache"
                 response.headers["X-Content-Type-Options"] = "nosniff"
@@ -157,6 +157,12 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     application.include_router(studio_turns_router, prefix="/api/v1")
     from backend.app.repo_learning.routes import router as repo_learning_router
     application.include_router(repo_learning_router, prefix="/api/v1")
+    from backend.app.repo_learning.rederive_routes import router as redrive_router
+    application.include_router(redrive_router)
+    from backend.app.interviews.routes import router as interviews_router
+    application.include_router(interviews_router, prefix='/api/v1')
+    from backend.app.learning.routes import router as learning_router
+    application.include_router(learning_router, prefix='/api/v1')
     application.include_router(meta_router, prefix="/api/v1")
     from backend.app.operations.readiness import router as operations_router
     application.include_router(operations_router, prefix="/api/v1")

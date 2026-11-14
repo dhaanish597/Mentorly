@@ -1,0 +1,17 @@
+.redrive-panel { padding: 20px; min-width: 0; }
+.redrive-panel h4 { font-size: 23px; line-height: 1.25; margin: 12px 0; }
+.redrive-panel .redrive-explanation { font-size: 15px; line-height: 1.7; margin: 20px 0 12px; }
+.redrive-panel .redrive-hash { display: block; color: var(--repo-muted); font: 10px/1.6 ui-monospace, monospace; overflow-wrap: anywhere; }
+.redrive-panel .redrive-feedback { border-left: 3px solid var(--horizon-lavender); background: var(--repo-soft); padding: 12px 14px; margin: 18px 0; }
+.redrive-panel .redrive-feedback strong { font-size: 12px; }
+.redrive-panel .redrive-feedback p { font-size: 12px; line-height: 1.65; margin-bottom: 0; }
+.redrive-panel textarea { min-height: 100px; resize: vertical; }
+.redrive-panel .studio-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.redrive-panel li { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.redrive-panel .repo-mentor-question { margin-top: 20px; }
+.redrive-defense-followup { border-left: 2px solid var(--horizon-lavender); padding-left: 14px; margin-top: 18px; }
+.redrive-defense-followup h4 { font-size: 13px; }
+.redrive-defense-followup p { font-size: 12px; line-height: 1.65; }
+.redrive-panel button { transition-property: background-color, color, opacity; }
+@media (max-width: 760px) { .redrive-panel { padding: 16px; } }
+@media (prefers-reduced-motion: reduce) { .redrive-panel button { transition: none; } }

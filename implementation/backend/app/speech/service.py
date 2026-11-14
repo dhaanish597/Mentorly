@@ -11,6 +11,7 @@ from backend.app.models.api_schemas import STTRequest, STTResult, TTSRequest
 from backend.app.models.domain import RevisionRef
 from backend.app.models.enums import LanguageMode
 from backend.app.speech.gatekeeper import SpeechBusyError, SpeechGatekeeper
+from backend.app.speech.capabilities import session_tts_selection
 from backend.app.speech.gnani_adapter import AssembledTTSSynthesis, GnaniSpeechAdapter
 from backend.app.speech.tts_cache import TTSDiskCache
 from backend.app.speech.ws_streamer import GnaniWebSocketSTTRelay
@@ -152,13 +153,15 @@ class SpeechService:
         revision: RevisionRef,
         turn_id: str | None = None,
         playback_id: str | None = None,
+        *, language: str | None = None, voice: str | None = None,
     ) -> AssembledTTSSynthesis:
         # Personalized learner/coach text has no public-scope option.
-        return await self._synthesize_request(session_id, text, revision, turn_id, playback_id)
+        return await self._synthesize_request(session_id, text, revision, turn_id, playback_id,
+                                               language=language, voice=voice)
 
     async def synthesize_fixed(
         self, session_id: str, revision: RevisionRef, *, purpose: str,
-        playback_id: str | None = None,
+        playback_id: str | None = None, language: str | None = None, voice: str | None = None,
     ) -> AssembledTTSSynthesis:
         """Only server-owned fixed public content may share audio across sessions."""
         self._assert_current(session_id, revision)
@@ -169,18 +172,21 @@ class SpeechService:
             text = _TEST_VOICE_TEXT
         else:
             raise ValueError("Unknown fixed public voice purpose.")
-        with self.gatekeeper._db_lock:
-            row = self.gatekeeper._conn.execute("SELECT language_mode FROM sessions WHERE id=?", (session_id,)).fetchone()
-        if row is None:
-            raise SpeechBusyError("Speech session is no longer available.")
-        language = "auto" if row["language_mode"] == LanguageMode.TA_IN_EN_IN.value else "en-IN"
         return await self._synthesize_request(session_id, text, revision, playback_id=playback_id,
-                                              cache_scope="PUBLIC_GENERIC", language=language)
+                                              cache_scope="PUBLIC_GENERIC", language=language, voice=voice)
+
+    def _tts_selection(self, session_id: str, *, language: str | None = None, voice: str | None = None) -> dict[str, str]:
+        with self.gatekeeper._db_lock:
+            row = self.gatekeeper._conn.execute('SELECT * FROM sessions WHERE id=?', (session_id,)).fetchone()
+        if row is None:
+            raise SpeechBusyError('Speech session is no longer available.')
+        return session_tts_selection(row, model=self.settings.gnani_tts_model,
+                                     default_voice=self.settings.gnani_tts_voice, language=language, voice=voice)
 
     async def _synthesize_request(
         self, session_id: str, text: str, revision: RevisionRef,
         turn_id: str | None = None, playback_id: str | None = None, *,
-        cache_scope: str = "SESSION_SCOPED", language: str = "en-IN",
+        cache_scope: str = "SESSION_SCOPED", language: str | None = None, voice: str | None = None,
     ) -> AssembledTTSSynthesis:
         self._assert_current(session_id, revision)
         req = TTSRequest(
@@ -190,10 +196,8 @@ class SpeechService:
             turn_id=turn_id,
             playback_id=playback_id,
             text=text,
-            model=self.settings.gnani_tts_model,
-            voice=self.settings.gnani_tts_voice,
+            **self._tts_selection(session_id, language=language, voice=voice),
             cache_scope=cache_scope,
-            language=language,
         )
         try:
             result = await self._track(
@@ -261,6 +265,7 @@ class SpeechService:
         revision: RevisionRef,
         playback_id: str | None = None,
         turn_id: str | None = None,
+        *, language: str | None = None, voice: str | None = None,
     ):
         """Stream provider PCM under one reservation/slot for its entire lifetime."""
         self._assert_current(session_id, revision)
@@ -271,8 +276,7 @@ class SpeechService:
             turn_id=turn_id,
             playback_id=playback_id,
             text=text,
-            model=self.settings.gnani_tts_model,
-            voice=self.settings.gnani_tts_voice,
+            **self._tts_selection(session_id, language=language, voice=voice),
         )
         queue = asyncio.Queue(maxsize=16)
 

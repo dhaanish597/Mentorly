@@ -3,8 +3,8 @@ import type { LearningCatalog, LearningProgress } from '../../services/learningA
 import { allLessons, lessonUrl, missingPrerequisites, prerequisiteMessage } from './curriculum';
 import { useLearningData } from './useLearningData';
 
-export function LearningNotice({ loading, error, onRetry }: { loading: boolean; error: string | null; onRetry: () => void }) {
-  if (error) return <div className="learning-notice" role="alert"><p>{error}</p><button type="button" onClick={onRetry}>Retry learning</button></div>;
+export function LearningNotice({ loading, error, onRetry, politeError = false }: { loading: boolean; error: string | null; onRetry: () => void; politeError?: boolean }) {
+  if (error) return <div className="learning-notice" role={politeError ? 'status' : 'alert'}><p>{error}</p><button type="button" onClick={onRetry}>Retry learning</button></div>;
   return loading ? <p className="learning-notice" role="status">Loading your learning workspace…</p> : null;
 }
 export function CurriculumPage() {
@@ -33,7 +33,7 @@ function Curriculum({ catalog, progress }: { catalog: LearningCatalog; progress:
           <ol className="lesson-list">{track.lessons.map(lesson => {
             const locked = missingPrerequisites(lesson, progress.completed_lesson_ids).length > 0;
             const complete = progress.completed_lesson_ids.includes(lesson.id);
-            return <li key={lesson.id} className={locked ? 'lesson-locked' : complete ? 'lesson-complete' : ''}><span className="lesson-marker" aria-hidden="true"><Icon name={locked ? 'lock' : complete ? 'check' : 'book'} /></span><div>
+            return <li key={lesson.id} className={locked ? 'lesson-locked' : complete ? 'lesson-complete' : ''}><span className="lesson-marker" aria-hidden="true"><Icon name={locked ? 'shield' : complete ? 'check' : 'book'} /></span><div>
               {locked ? <h3>{lesson.title}</h3> : <h3><a href={lessonUrl(lesson.id)}>{lesson.title}</a></h3>}
               <p>{lesson.difficulty} · {lesson.estimated_minutes} minutes</p>
               {locked && <small>{prerequisiteMessage(lesson, catalog, progress.completed_lesson_ids)}</small>}

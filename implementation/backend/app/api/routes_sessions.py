@@ -243,8 +243,11 @@ def create_session_route(req: CreateSessionRequest) -> CreateSessionResponse:
         state=init_state.value,
         learning_state=LearningState.EXPLAINING.value,
     )
+    with repo._connect() as conn:
+        conn.execute('UPDATE sessions SET voice=?,spoken_language=? WHERE id=?', (req.voice, req.spoken_language, rec.id))
     rev = machine.build_revision_ref(rec.id)
     return CreateSessionResponse(
+        voice=req.voice, spoken_language=req.spoken_language,
         session_id=session_uuid,
         session_token=raw_token,
         starter_code=starter_code,
@@ -717,7 +720,7 @@ async def synthesize_coaching_route(session_id: UUID, req: TTSPlaybackRequest, r
         raise ApiAppException(status_code=503, code='COACHING_UNAVAILABLE', message='No grounded coaching text is available.')
     playback_id = str(uuid4())
     try:
-        result = await request.app.state.speech.synthesize(str(session_id), text, rev, playback_id=playback_id)
+        result = await request.app.state.speech.synthesize(str(session_id), text, rev, playback_id=playback_id, language=req.language, voice=req.voice)
     except Exception as exc:
         raise ApiAppException(status_code=503, code='SPEECH_UNAVAILABLE', message='Speech is unavailable; read the coaching text.') from exc
     machine.assert_revision_matches(str(session_id), rev)
@@ -761,7 +764,7 @@ async def stream_coaching_route(session_id: UUID, req: TTSPlaybackRequest, reque
         'revision':req.revision.model_dump(mode='json'),'normalized_text_hash':hashlib.sha256(text.encode()).hexdigest()})
     async def stream():
         try:
-            async for event in request.app.state.speech.stream_synthesize(str(session_id),text,req.revision,playback_id=playback_id):
+            async for event in request.app.state.speech.stream_synthesize(str(session_id),text,req.revision,playback_id=playback_id,language=req.language,voice=req.voice):
                 machine.assert_revision_matches(str(session_id),req.revision)
                 if await request.is_disconnected():
                     request.app.state.speech.cancel(str(session_id),req.revision.turn_generation)

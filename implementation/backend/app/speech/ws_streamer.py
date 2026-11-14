@@ -32,6 +32,15 @@ from backend.app.speech.gnani_adapter import (
 from backend.app.speech.transcript_normalizer import normalize_learner_transcript
 
 
+PCM_CAPTURE_MAX_BYTES = 960000
+PCM_FRAME_BYTES = 1024
+
+
+def _bounded_pcm_frame(raw: bytes, offset: int = 0) -> bytes:
+    """Do not pad a final frame beyond the physical 30-second PCM limit."""
+    return raw[offset:offset + PCM_FRAME_BYTES].ljust(min(PCM_FRAME_BYTES, PCM_CAPTURE_MAX_BYTES - offset), b'\0')
+
+
 def strip_wav_header_to_raw_pcm16(audio_bytes: bytes) -> bytes:
     if is_riff_wav(audio_bytes):
         inspect_and_validate_stt_wav(audio_bytes)
@@ -113,7 +122,7 @@ class GnaniWebSocketSTTRelay:
             response = self._legacy_transport(
                 config,
                 [
-                    raw[i : i + 1024].ljust(1024, b"\0")
+                    _bounded_pcm_frame(raw, i)
                     for i in range(0, len(raw), 1024)
                 ],
                 build_ws_stt_commit_frame(),
@@ -140,7 +149,7 @@ class GnaniWebSocketSTTRelay:
                         max_queue=16,
                     ) as ws:
                         connected = json.loads(await asyncio.wait_for(ws.recv(), 6))
-                        if connected.get("type") != "connected":
+                        if not isinstance(connected, dict) or connected.get("type") != "connected":
                             raise GnaniTransportError(
                                 "Gnani WS did not acknowledge configuration.",
                                 retryable=False,
@@ -175,9 +184,11 @@ class GnaniWebSocketSTTRelay:
                                         "Gnani WS rejected the stream.", retryable=False
                                     )
                                 utterance = message.get("utterance_id")
-                                if kind == "processing" and utterance:
+                                if kind in ('processing', 'speech_start') and utterance:
                                     pending.add(utterance)
                                 if kind == "transcript":
+                                    if not isinstance(message.get('is_final'), bool):
+                                        raise GnaniTransportError('WS transcript omitted its final flag.', retryable=False)
                                     if message.get("is_final") is False:
                                         continue
                                     sid = message.get("segment_id")
@@ -225,7 +236,7 @@ class GnaniWebSocketSTTRelay:
                                         "Capture superseded during WS upload."
                                     )
                                 await ws.send(
-                                    raw[index : index + 1024].ljust(1024, b"\0")
+                                    _bounded_pcm_frame(raw, index)
                                 )
                                 clock += 0.032
                                 if self._pace_frames:
@@ -367,12 +378,11 @@ class GnaniWebSocketSTTRelay:
                                 raise GnaniTransportError(
                                     "Gnani WS rejected the stream.", retryable=False
                                 )
-                            if kind == "processing" and utterance:
+                            if kind in ('processing', 'speech_start') and utterance:
                                 pending.add(utterance)
-                            if (
-                                kind == "transcript"
-                                and message.get("is_final") is not False
-                            ):
+                            if kind == 'transcript' and not isinstance(message.get('is_final'), bool):
+                                raise GnaniTransportError('WS transcript omitted its final flag.', retryable=False)
+                            if kind == 'transcript' and message['is_final']:
                                 segment_id = message.get("segment_id")
                                 if segment_id and segment_id in segment_ids:
                                     continue
@@ -445,7 +455,7 @@ class GnaniWebSocketSTTRelay:
                         if not received_bytes:
                             raise ValueError("Live capture contained no audio.")
                         if buffer:
-                            await ws.send(buffer.ljust(1024, b"\0"))
+                            await ws.send(buffer.ljust(min(PCM_FRAME_BYTES, PCM_CAPTURE_MAX_BYTES - frame_count * PCM_FRAME_BYTES), b'\0'))
                         await ws.send(json.dumps(build_ws_stt_commit_frame()))
                         committed_at = time.monotonic()
                         finished.set()

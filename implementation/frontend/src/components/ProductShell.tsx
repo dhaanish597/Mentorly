@@ -5,7 +5,7 @@ import { BrandLogo, Icon, type IconName } from './HorizonVisuals';
 const links: { href: string; label: string; icon: IconName }[] = [
   { href: '/dashboard', label: 'Home', icon: 'home' },
   { href: '/library', label: 'Practice', icon: 'code' },
-  { href: '/paths', label: 'Learning paths', icon: 'paths' },
+  { href: '/learn', label: 'Learn', icon: 'paths' },
   { href: '/studio', label: 'Design studio', icon: 'design' },
   { href: '/progress', label: 'Progress', icon: 'progress' },
 ];
@@ -27,10 +27,10 @@ export function ProductShell({ children, current, workspace = false }: { childre
     window.addEventListener('viva:route-change', update);
     return () => { window.removeEventListener('popstate', update); window.removeEventListener('viva:route-change', update); };
   }, []);
-  const active = current.startsWith('/practice/') ? '/library' : current.startsWith('/studio') ? '/studio' : current.startsWith('/paths/') ? '/paths' : current;
+  const active = current.startsWith('/practice/') ? '/library' : current.startsWith('/studio') ? '/studio' : current.startsWith('/learn') || current.startsWith('/paths') ? '/learn' : current;
 
   const handleNav = (e: MouseEvent<HTMLAnchorElement>, href: string) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
     navigate(href);
   };
@@ -63,12 +63,9 @@ export function ProductShell({ children, current, workspace = false }: { childre
           className="sidebar-settings"
           aria-label="Settings"
           title="Settings"
-          href="/library?settings=1"
-          onClick={e => {
-            e.preventDefault();
-            window.dispatchEvent(new CustomEvent('viva:open-settings'));
-            if (!workspace) navigate('/library?settings=1');
-          }}
+          href="/settings"
+          aria-current={current === '/settings' ? 'page' : undefined}
+          onClick={e => handleNav(e, '/settings')}
         >
           <Icon name="settings" />
           <span>Settings</span>
@@ -77,9 +74,9 @@ export function ProductShell({ children, current, workspace = false }: { childre
       <div className="product-mobile-header">
         <BrandLogo href="/dashboard" onNavigate={navigate} />
         <a
-          href="/library?settings=1"
+          href="/settings"
           aria-label="Workspace settings"
-          onClick={e => handleNav(e, '/library?settings=1')}
+          onClick={e => handleNav(e, '/settings')}
         >
           <Icon name="settings" />
         </a>
@@ -98,9 +95,7 @@ export function ProductShell({ children, current, workspace = false }: { childre
           >
             <Icon name={link.icon} />
             <span>
-              {link.label === 'Learning paths'
-                ? 'Paths'
-                : link.label === 'Design studio'
+              {link.label === 'Design studio'
                 ? 'Studio'
                 : link.label}
             </span>

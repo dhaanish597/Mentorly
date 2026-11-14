@@ -68,6 +68,8 @@ def build_learning_snapshot(repo: SQLiteRepository, machine: Any, session_id: st
         "learning_state": session.learning_state,
         "spec_acknowledged": session.spec_acknowledged,
         "language_mode": session.language_mode,
+        "voice": session.voice,
+        "spoken_language": session.spoken_language,
         "interaction_mode": session.interaction_mode,
         "latest_client_edit_sequence": session.latest_client_edit_sequence,
         "source_code": code.source_code if code else "",

@@ -72,6 +72,8 @@ class SessionRecord:
     expires_at: str
     deleted_at: str | None
     latest_client_edit_sequence: int = 0
+    voice: str | None = None
+    spoken_language: str | None = None
 
 
 @dataclass(frozen=True)
@@ -235,6 +237,8 @@ def _row_to_session(row: sqlite3.Row) -> SessionRecord:
         expires_at=row["expires_at"],
         deleted_at=row["deleted_at"],
         latest_client_edit_sequence=int(row["latest_client_edit_sequence"]),
+        voice=row['voice'] if 'voice' in row.keys() else None,
+        spoken_language=row['spoken_language'] if 'spoken_language' in row.keys() else None,
     )
 
 

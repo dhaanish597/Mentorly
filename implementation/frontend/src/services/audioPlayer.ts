@@ -118,6 +118,18 @@ export class AudioPlayer {
   private preferences: PlaybackPreferences = DEFAULT_AUDIO_PREFERENCES;
   private gain: GainNode | null = null;
   private activeNode: AudioBufferSourceNode | null = null;
+  private decodedDurationMs = 0;
+  private audioElapsedMs = 0;
+  private lastAudioClock = 0;
+
+  /** Playback-clock estimate; does not imply provider word timestamps. */
+  public get playbackProgress(): number {
+    if (!this.isPlayingState) return 1;
+    const clock = this.playbackContext?.currentTime ?? 0;
+    this.audioElapsedMs += Math.max(0, clock - this.lastAudioClock) * 1000 * this.preferences.speed;
+    this.lastAudioClock = clock;
+    return this.decodedDurationMs > 0 ? Math.min(0.99, this.audioElapsedMs / this.decodedDurationMs) : 0;
+  }
 
   public setPreferences(preferences: PlaybackPreferences): void {
     this.preferences = updateAudioPreferences(DEFAULT_AUDIO_PREFERENCES, preferences);
@@ -332,6 +344,9 @@ export class AudioPlayer {
     };
 
     sourceNode.start(0);
+    this.decodedDurationMs = decoded.durationMs;
+    this.audioElapsedMs = 0;
+    this.lastAudioClock = ctx.currentTime;
     return { started: true, fallbackAck: null };
   }
 

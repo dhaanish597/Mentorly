@@ -46,6 +46,8 @@ ENUM_CLASSES: tuple[type[enum.Enum], ...] = (
     enums.ExerciseId,
     enums.SpecVersion,
     enums.LanguageMode,
+    enums.SpeechLocale,
+    enums.TTSVoice,
     enums.InteractionMode,
     enums.TransportMode,
     enums.SessionState,

@@ -4,6 +4,11 @@ import { RedrivePanel } from '../features/redrive/RedrivePanel';
 import { DefenseFollowup } from '../features/redrive/DefenseFollowup';
 import { RepositoryPanel } from '../StudioRepository';
 
+const moduleVoice = vi.hoisted(() => ({ render: vi.fn() }));
+vi.mock('../voice/ModuleVoice', () => ({ ModuleVoice: (props: { module: string; sessionId: string; epoch: number; messageId: string; onTranscript: (text: string) => void }) => {
+  moduleVoice.render(props);
+  return <button type="button" onClick={() => props.onTranscript('main.py')}>Record answer</button>;
+} }));
 const recorder = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), dispose: vi.fn() }));
 vi.mock('../services/audioRecorder', () => ({ AudioRecorder: class {
   startMicrophoneCapture = recorder.start;
@@ -22,10 +27,12 @@ const plan = { plan_id: 'p', snapshot_id: 's', snapshot_hash: 'b'.repeat(64), ep
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 let fetcher: ReturnType<typeof vi.fn>;
 beforeEach(() => {
+  moduleVoice.render.mockClear();
+  props.onOpenSource.mockClear();
   recorder.start.mockResolvedValue(undefined);
   recorder.stop.mockResolvedValue({ wavBytes: new Uint8Array([1, 2]) });
   recorder.dispose.mockResolvedValue(undefined);
-  fetcher = vi.fn(async (url: string, options: RequestInit = {}) => {
+  fetcher = vi.fn(async (url: string) => {
     if (url.endsWith('/learning-plan') || url.endsWith('/learning-plans/p')) return json(plan);
     if (url.endsWith('/answers')) return json({ ...plan, epoch: 2, status: 'complete', current_step: null,
       checkpoint: { cursor: 1, completed_step_ids: ['file'] }, evidence_events: [{ sequence: 1, step_id: 'file', assessment: 'supported_observation', feedback: 'Source observation recorded; mastery is not established.', citations: [citation], question: '', mastery: 'not_established' }],
@@ -88,17 +95,17 @@ it('ignores results after snapshot/capability replacement', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent(/snapshot|checkpoint/i);
 });
 
-it('voice uses the existing speech seam as a draft and never auto-submits', async () => {
+it('module voice uses the independent learning epoch as a draft and never auto-submits', async () => {
   render(<RedrivePanel {...props} session={session} speechEpoch={7} />);
   await screen.findByRole('heading', { name: 'One source file' });
-  fireEvent.click(screen.getByRole('button', { name: 'Talk' }));
-  await screen.findByRole('button', { name: 'Stop' });
-  fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-  await waitFor(() => expect(screen.getByLabelText('Your beginner answer')).toHaveValue('main.py'));
+  fireEvent.click(screen.getByRole('button', { name: 'Record answer' }));
+  expect(screen.getByLabelText('Your beginner answer')).toHaveValue('main.py');
   expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/answers'))).toBe(false);
-  const [, options] = fetcher.mock.calls.find(([url]) => String(url).endsWith('/speech'))!;
-  expect(JSON.parse(options.body).expected_epoch).toBe(7);
-  expect(options.headers['X-Session-Token']).toBe(session.token);
+  const voice = moduleVoice.render.mock.calls[moduleVoice.render.mock.calls.length - 1][0];
+  expect(voice.module).toBe('redrive');
+  expect(voice.sessionId).toBe('p');
+  expect(voice.epoch).toBe(1);
+  expect(voice.messageId).toBe('file:explanation');
 });
 
 it('renders source-adaptive defense followups from actual recorded phase feedback without grading', () => {

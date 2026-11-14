@@ -11,13 +11,53 @@ const report: InterviewReport = { session_id: 'session', completion_reason: 'fin
 function api(): InterviewApi {
   return { getConfig: vi.fn().mockResolvedValue({ types: ['dsa', 'cs', 'system_design', 'codebase_defense'], difficulties: ['beginner', 'intermediate', 'advanced'], duration_minutes: { minimum: 5, maximum: 60, default: 15 }, language_modes: ['en-IN', 'ta-IN,en-IN'], camera_default: false }), getCatalog: vi.fn().mockResolvedValue({ topics: { dsa: ['binary-search'], cs: ['operating-systems'], system_design: ['capacity'], codebase_defense: ['ownership'] }, dsa_exercises: [] }), createSession: vi.fn().mockResolvedValue(session), getSession: vi.fn().mockResolvedValue(session), answer: vi.fn().mockResolvedValue({ ...session, epoch: 2, acknowledgement: { text: 'Answer recorded.', source_refs: [] }, question: { ...question, id: 'q2', text: 'What reasoning supports your choice?', kind: 'followup', parent_id: 'q1' } }), finish: vi.fn().mockResolvedValue(report) };
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear(); });
 async function start(helper: InterviewApi) {
   render(<InterviewPage api={helper} workspace={workspace} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Start interview' }));
   await screen.findByText(question.text);
 }
 describe('interview assessment flow', () => {
+  it('resumes a durable session after remount and can start another after finishing', async () => {
+    sessionStorage.clear();
+    const helper = api(); await start(helper);
+    cleanup();
+    render(<InterviewPage api={helper} workspace={workspace} />);
+    await waitFor(() => expect(helper.getSession).toHaveBeenCalledWith('session'));
+    await screen.findByText(question.text);
+    fireEvent.click(screen.getByRole('button', { name: 'Finish interview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start another interview' }));
+    await screen.findByRole('button', { name: 'Start interview' });
+    expect(screen.queryByRole('heading', { name: 'Interview report' })).not.toBeInTheDocument();
+  });
+  it('allows distinct configurations and does not auto-submit a voice transcript', async () => {
+    sessionStorage.clear();
+    const helper = api(); const onMessage = vi.fn();
+    render(<InterviewPage api={helper} workspace={workspace} onMessage={onMessage} renderVoice={context => <button type="button" onClick={() => context.onTranscript('spoken draft')}>Dictate test</button>} />);
+    fireEvent.change(await screen.findByLabelText('Interview type'), { target: { value: 'system_design' } });
+    fireEvent.change(screen.getByLabelText('Difficulty'), { target: { value: 'advanced' } });
+    fireEvent.change(screen.getByLabelText('Duration in minutes'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Language preference'), { target: { value: 'ta-IN,en-IN' } });
+    fireEvent.click(screen.getByLabelText('capacity'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start interview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dictate test' }));
+    expect(screen.getByLabelText('Your answer')).toHaveValue('spoken draft');
+    expect(helper.answer).not.toHaveBeenCalled();
+    expect(helper.createSession).toHaveBeenCalledWith({ type: 'system_design', difficulty: 'advanced', duration_minutes: 30, language_mode: 'ta-IN,en-IN', topics: ['capacity'] });
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 'q1', kind: 'question', text: question.text }));
+  });
+  it('camera denial leaves the typed interview usable and turning preview off stops tracks', async () => {
+    sessionStorage.clear();
+    const stop = vi.fn(); const media = vi.fn().mockRejectedValueOnce(new Error('permission denied')).mockResolvedValueOnce({ getTracks: () => [{ stop }] });
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: media } });
+    const helper = api(); await start(helper);
+    fireEvent.click(screen.getByRole('button', { name: 'Enable local camera preview' }));
+    await screen.findByText('permission denied');
+    expect(screen.getByLabelText('Your answer')).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Enable local camera preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn camera off' }));
+    expect(stop).toHaveBeenCalled();
+  });
   it('starts without requesting camera or credentials and submits selected configuration', async () => {
     const media = vi.fn(); vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: media } });
     const helper = api(); await start(helper);

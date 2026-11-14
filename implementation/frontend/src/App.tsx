@@ -18,6 +18,9 @@ import { loadAudioPreferences, saveAudioPreferences, shouldPlayIntroduction, sho
 import { DEFAULT_PRODUCT_STATE, draftKey, forgetTabSession, libraryUrl, loadProductState, problemUrl, readRoute, readTabSessions, rememberTabSession, saveProductState, type ProductRoute } from './state/productState';
 import { getTeacherForSubject } from './config/teachers';
 import './voice-first-workspace.css';
+import { ActiveConversation, type ConversationEntry } from './components/ActiveConversation';
+import { subscribeAudioPreferences, loadSpeechPreferences } from './voice/preferences';
+import { resolveSpeechSelection } from './voice/languages';
 
 const RESTORE_KEY = 'vcc-session';
 function coachReplayKey(state: WorkbenchSessionState, level: HintLevel): string {
@@ -49,13 +52,9 @@ export function App(): React.ReactElement {
   const [ttsTransport, setTtsTransport] = useState<'STREAM' | 'WAV'>('WAV');
   const [audioPreferences, setAudioPreferences] = useState(() => {
     const saved = loadAudioPreferences();
-    const ps = loadProductState();
-    if (ps.alwaysVoiceOn || (location.pathname.startsWith('/practice/') && ps.inputChoice !== 'text')) {
-      return updateAudioPreferences(saved, { textOnly: false, voiceOutput: true, autoSpeak: true, introductions: true });
-    }
-    if (ps.inputChoice === 'text') {
-      return updateAudioPreferences(saved, { textOnly: true, voiceOutput: false, autoSpeak: false });
-    }
+    try {
+      if (!localStorage.getItem('viva.audio-preferences.v1') && loadProductState().inputChoice !== 'text') return updateAudioPreferences(saved, { introductions: true, autoSpeak: true });
+    } catch { return saved; }
     return saved;
   });
   const audioPreferencesRef = useRef(audioPreferences);
@@ -69,7 +68,39 @@ export function App(): React.ReactElement {
   const [rms, setRms] = useState(0);
   const [micMessage, setMicMessage] = useState('Microphone setup is optional; typed input is always available.');
   const [workbench, setWorkbench] = useState(createInitialWorkbenchState);
+  const [conversation, setConversation] = useState<ConversationEntry[]>([]);
+  const [conversationSpeaker, setConversationSpeaker] = useState<'mentor' | 'student'>('mentor');
+  const [mentorText, setMentorText] = useState('');
+  const [audioProgress, setAudioProgress] = useState(1);
   const [product, setProduct] = useState(loadProductState);
+  useEffect(() => subscribeAudioPreferences(preferences => setAudioPreferences(previous => JSON.stringify(previous) === JSON.stringify(preferences) ? previous : preferences)), []);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setSpeaking(player.current.isPlaying);
+      setAudioProgress(player.current.playbackProgress);
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (!workbench.sessionId) { setConversation([]); setMentorText(''); return; }
+    try {
+      const raw: unknown = JSON.parse(sessionStorage.getItem(`viva.conversation.${workbench.sessionId}`) ?? '[]');
+      const entries = Array.isArray(raw) ? raw.filter((entry): entry is ConversationEntry => typeof entry === 'object' && entry !== null && typeof entry.id === 'string' && typeof entry.text === 'string' && entry.text.length <= 8000 && ['mentor', 'student'].includes(entry.speaker)).slice(-60) : [];
+      setConversation(entries);
+      const last = entries[entries.length - 1];
+      if (last) { setConversationSpeaker(last.speaker); if (last.speaker === 'mentor') setMentorText(last.text); }
+    } catch { setStorageWarning('Conversation history could not be restored on this device.'); }
+  }, [workbench.sessionId]);
+  function appendConversation(entry: ConversationEntry): void {
+    setConversation(previous => {
+      const next = [...previous.filter(item => item.id !== entry.id), { ...entry, text: entry.text.slice(0, 8000) }].slice(-60);
+      try { if (latest.current.sessionId) sessionStorage.setItem(`viva.conversation.${latest.current.sessionId}`, JSON.stringify(next)); }
+      catch { setStorageWarning('Conversation history could not be saved on this device.'); }
+      return next;
+    });
+    setConversationSpeaker(entry.speaker);
+    if (entry.speaker === 'mentor') setMentorText(entry.text);
+  }
   const productRef = useRef(product);
   const [route, setRoute] = useState(readRoute);
   const [settingsOpen, setSettingsOpen] = useState(() => {
@@ -161,7 +192,7 @@ export function App(): React.ReactElement {
       languageMode: productRef.current.language, specAcknowledged: spec !== 'v2_negatives_allowed', activeView: spec === 'v2_negatives_allowed' ? 'DOMAIN_SHIFT_ACK_GATE' : 'EXERCISE_BRIEF_SPEC' };
   }
   async function openProblem(problem: string, spec: string, push = true): Promise<void> {
-    if (productRef.current.inputChoice !== 'text') updateAudio({ textOnly: false, voiceOutput: true, autoSpeak: true, introductions: true });
+    // Opening a problem must not override saved mute, autoplay, or text-only preferences.
     void voice.current.unlockAudioFromGesture();
     openingKey.current = ''; setShowTranscript(false);
     stashDraft(); const stopped = interruptLocal('Problem or specification changed');
@@ -309,7 +340,8 @@ export function App(): React.ReactElement {
     setWorkbench(prev => ({ ...prev, activeArtifact: null, activeVerificationReport: null, activeTrace: null, activeChallenge: null, proposedClaim: null, activeTurnId: null, priorFailureArtifactId: null, coachingHistory: [] }));
     const epoch = generation.current;
     await interrupted;
-    const res = await api.createSession({ exercise_id: exerciseId, spec_version: specVersion, language_mode: productRef.current.language, interaction_mode: latest.current.interactionMode });
+    const speechSelection = resolveSpeechSelection(loadSpeechPreferences());
+    const res = await api.createSession({ exercise_id: exerciseId, spec_version: specVersion, language_mode: speechSelection.language_mode, interaction_mode: latest.current.interactionMode, voice: speechSelection.voice, spoken_language: speechSelection.spoken_language });
     if (epoch !== generation.current) return;
     api.registerSessionToken(res.session_id, res.session_token);
     sessionStorage.setItem(RESTORE_KEY, JSON.stringify({ id: res.session_id, token: res.session_token }));
@@ -317,7 +349,7 @@ export function App(): React.ReactElement {
     const sourceCode = settings.exerciseId === exerciseId && settings.specVersion === specVersion ? settings.sourceCode : res.starter_code;
     const next = { ...createInitialWorkbenchState(), exerciseId, specVersion, sessionId: res.session_id, sessionToken: res.session_token, revision: res.revision,
       sourceCode, persistedSourceCode: res.starter_code, editorDirty: sourceCode !== res.starter_code, editableTranscript: settings.editableTranscript, sessionState: res.state, learningState: res.learning_state,
-      specAcknowledged: res.spec_acknowledged, languageMode: productRef.current.language, interactionMode: settings.interactionMode, turnGeneration: res.revision.turn_generation };
+      specAcknowledged: res.spec_acknowledged, languageMode: speechSelection.language_mode, interactionMode: settings.interactionMode, turnGeneration: res.revision.turn_generation };
     const ready = { ...next, activeView: resolveActiveWorkbenchView(next) };
     latest.current = ready;
     setWorkbench(ready);
@@ -366,6 +398,7 @@ export function App(): React.ReactElement {
       turnGeneration: res.revision.turn_generation, captureAttemptId: res.capture_attempt_id,
       rawTranscript: transcript, editableTranscript: transcript, activeView: 'TRANSCRIPT_CLAIM_CONFIRMATION' as const };
     latest.current = next; setWorkbench(next);
+    appendConversation({ id: `student-${res.turn_id}-${res.capture_attempt_id}`, speaker: 'student', text: transcript });
     if (res.proposed_claim.claim_type === 'OUTPUT_PREDICTION_AND_REASON') {
       setPredictedValue(formatPrediction(res.proposed_claim.predicted_output)); setPredictionReason(res.proposed_claim.reason_summary ?? '');
     }
@@ -451,8 +484,17 @@ export function App(): React.ReactElement {
     setVoiceMessage('Listening. Your words are kept when you interrupt.');
   }
   async function speakConversation(turn: TurnResponse): Promise<void> {
-    if (!shouldRequestVoice(audioPreferencesRef.current)) return;
     const s = latest.current;
+    const textResponse = await fetch(`/api/v1/sessions/${s.sessionId}/conversation/text`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.sessionToken}`, 'X-Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ revision: turn.revision, turn_id: turn.turn_id }),
+    });
+    if (!textResponse.ok) throw new Error('Your explanation is saved, but the mentor reply could not be loaded. Retry or continue editing.');
+    const reply: unknown = await textResponse.json();
+    if (typeof reply !== 'object' || reply === null || !('text' in reply) || typeof reply.text !== 'string') throw new Error('Mentor returned an invalid text response.');
+    if (latest.current.activeTurnId !== turn.turn_id || !sameRevision(latest.current.revision, turn.revision)) return;
+    appendConversation({ id: `mentor-${turn.turn_id}-${turn.capture_attempt_id}`, speaker: 'mentor', text: reply.text });
+    if (!shouldRequestVoice(audioPreferencesRef.current) || !audioPreferencesRef.current.autoSpeak) return;
     const controller = new AbortController();
     speechRequest.current = controller; speechRequestPurpose.current = 'TTS';
     try {
@@ -466,7 +508,7 @@ export function App(): React.ReactElement {
     if (text) setVoiceMessage(decodeURIComponent(text));
     const bytes = await response.arrayBuffer();
     if (controller.signal.aborted || s.sessionId !== latest.current.sessionId || (recorder.current?.isRecording && Date.now() - lastSpeechAt.current < 1200)) return;
-    interruptedReply.current = false; setSpeaking(true);
+    interruptedReply.current = false; // Speaking is driven by the actual audio player, not network completion.
     await voice.current.play({ wavBytes: bytes, playbackId: response.headers.get('X-Playback-ID') ?? undefined,
       sessionId: s.sessionId!, turnId: turn.turn_id, turnGeneration: turn.revision.turn_generation, revision: turn.revision,
       onEnded: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } }, onAutoplayBlocked: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } setVoiceMessage('Tap the microphone to enable audio. Your explanation is saved.'); } }, controller.signal);
@@ -654,7 +696,6 @@ export function App(): React.ReactElement {
     if (generation.current !== epoch || controller.signal.aborted || latest.current.sessionId !== state.sessionId || !shouldRequestVoice(audioPreferencesRef.current)) return;
     orientationCache.current = { key, ...data }; voiceReplayRevision.current = state.revision; setHasVoiceReplay(true);
     playbackPurpose.current = 'orientation';
-    setSpeaking(true);
     const result = await voice.current.play({ wavBytes: data.audio, playbackId: data.playbackId ?? undefined, sessionId: state.sessionId, turnId: `orientation-${purpose}`, turnGeneration: state.turnGeneration, revision: state.revision, onEnded: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } }, onAutoplayBlocked: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } setVoiceMessage('Tap the microphone to enable audio on this browser.'); } }, controller.signal);
     if (!result.started) setSpeaking(false);
     setVoiceMessage(result.started ? 'Voice playing. Stop audio any time; your text stays available.' : 'Playback did not start. Read the text or use local replay.');
@@ -862,8 +903,9 @@ export function App(): React.ReactElement {
               </div>
             )}
 
+            <ActiveConversation speaker={recording ? 'student' : conversationSpeaker} text={recording ? '' : conversationSpeaker === 'student' ? workbench.editableTranscript : mentorText || `Today's challenge is ${currentExercise?.title ?? 'your selected problem'}. What does it ask, and how would you begin?`} status={error ? 'error' : speaking ? 'playing' : recording ? 'listening' : busy ? 'thinking' : 'idle'} progress={audioProgress} history={conversation} />
             {workbench.sessionId && showTranscript && (
-              <div className="mentor-chat-stream">
+              <details className="mentor-chat-stream"><summary>Interpretation & grounded hints</summary>
                 <div className="mentor-bubble">
                   <p>Hi Dhaanish. Today's challenge is <strong>"{currentExercise?.title ?? 'DSA Challenge'}"</strong>. Before any code, tell me in your own words what this is asking and how you would start. Speak or type, whichever feels natural.</p>
                 </div>
@@ -900,7 +942,7 @@ export function App(): React.ReactElement {
                     }
                   }}
                 />
-              </div>
+              </details>
             )}
 
             <div className="mentor-input-dock">
@@ -957,6 +999,7 @@ export function App(): React.ReactElement {
                 <button disabled={busy || !shouldRequestVoice(audioPreferences) || !workbench.activeArtifact || !workbench.activeTurnId || workbench.editorDirty || workbench.diagnosticHidden} onClick={() => { void perform(playCoach); }}>Play Coach Voice</button>
                 <button disabled={busy || !hasVoiceReplay || !shouldRequestVoice(audioPreferences) || workbench.editorDirty || !sameRevision(voiceReplayRevision.current, workbench.revision)} onClick={() => { void perform(replayVoice); }}>Replay last voice</button>
               </div>
+              {workbench.proposedClaim && workbench.proposedClaim.claim_type !== 'OUTPUT_PREDICTION_AND_REASON' && workbench.proposedClaim.claim_type !== 'UNSUPPORTED_CLAIM' && <button type="button" disabled={busy || workbench.editorDirty} onClick={() => { void perform(confirmClaim); }}>Confirm Explanation (No Execution)</button>}
               {workbench.proposedClaim?.claim_type === 'OUTPUT_PREDICTION_AND_REASON' && <button type="button" disabled={busy || workbench.editorDirty} onClick={() => { void perform(confirmClaim); }}>Submit prediction & run</button>}
               <FreshCaseTransferCard state={workbench} isBusy={busy} onIssueTransferChallenge={() => { void perform(() => issueChallenge('TRANSFER')); }} />
             </details>

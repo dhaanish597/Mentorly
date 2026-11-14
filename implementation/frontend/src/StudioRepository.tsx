@@ -2,6 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { studioRequest, type Workspace, type StudioSession } from './studioApi';
 import { StudioVoice, type StudioVoiceEvent } from './StudioVoice';
 import { Icon, MentorPortrait } from './components/HorizonVisuals';
+import { RedrivePanel } from './features/redrive/RedrivePanel';
+import { DefenseFollowup } from './features/redrive/DefenseFollowup';
 import './repository-workspace.css';
 
 type Snapshot = { snapshot_id: string; status: string; files_indexed?: number; total_files?: number; coverage_ratio?: number; failure_code?: string };
@@ -58,6 +60,8 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [map, setMap] = useState<MapFile[]>([]);
   const [view, setView] = useState<SourceView | null>(null);
+  const [viewCitation, setViewCitation] = useState<Citation | null>(null);
+  const [beginnerOpen, setBeginnerOpen] = useState(false);
   const [chosen, setChosen] = useState<SearchHit[]>([]);
   const [topic, setTopic] = useState('');
   const [rationale, setRationale] = useState('');
@@ -111,7 +115,7 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
     setDefenseState(null); setSessionRefresh(null); setAnswer(''); setChangedRequirement(''); setReflectAlternative(''); setUnknowns('');
   }
   function clearLearning() {
-    resetDefense(); setMap([]); setHits([]); setView(null); setChosen([]); setEvidence(null); setPrompt(null);
+    resetDefense(); setMap([]); setHits([]); setView(null); setViewCitation(null); setBeginnerOpen(false); setChosen([]); setEvidence(null); setPrompt(null);
     setCards([]); setSelectedCards([]); setDecisions([]); setTopic(''); setRationale(''); setAlternative(''); setQuery('');
   }
   function showSnapshot(value: Snapshot | null) {
@@ -252,9 +256,13 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
   }
   async function open(path: string, op: Operation) {
     const result = await studioRequest<SourceView>(repoPath(`/files?path=${encodeURIComponent(path)}`), { workspace: owner(), signal: op.signal });
-    if (op.current()) setView(result);
+    if (op.current()) { setView(result); setViewCitation(null); }
   }
   const openSource = (path: string) => { void run(op => open(path, op)); };
+  const openCitation = (citation: Citation) => { void run(async op => {
+    await open(citation.path, op);
+    if (op.current()) setViewCitation(citation);
+  }); };
   async function loadCards(op: Operation) {
     const result = await studioRequest<{ cards: Evidence[] }>(repoPath('/evidence'), { workspace: owner(), signal: op.signal });
     if (op.current()) setCards(result.cards);
@@ -347,6 +355,9 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
     <div className="repo-learning-grid">
       <section className="repo-mentor" aria-label="Repository mentor">
         <header className="repo-mentor-identity"><MentorPortrait state={busy ? 'thinking' : 'idle'} eager /><div><h3>Your mentor</h3><p>Evidence first. Your reasoning matters.</p></div></header>
+        {ready && workspace && <div className="repo-conversation"><button type="button" disabled={busy} aria-expanded={beginnerOpen} onClick={() => setBeginnerOpen(value => !value)}>{beginnerOpen ? 'Return to repository defense' : 'Teach me from the beginning'}</button></div>}
+        {beginnerOpen && ready && workspace && snapshot && <RedrivePanel key={`${workspace.id}:${snapshot.snapshot_id}`} workspace={workspace} snapshotId={snapshot.snapshot_id} onOpenSource={openCitation} session={session} speechEpoch={speechEpoch} active={panelActive && !busy} />}
+        <div hidden={beginnerOpen}>
         <div className="repo-conversation">
           <div className="repo-phase-switch" role="group" aria-label="Learning focus">
             <button type="button" aria-pressed={currentPhase === 'derive' || currentPhase === 'map'} disabled={busy || !!defenseState} onClick={() => { setPhase('derive'); setPrompt(null); }}>Derive</button>
@@ -354,14 +365,14 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
           </div>
           {defenseState && <p className="repo-phase">Current stage: {defenseState.phase}</p>}
           <p className="repo-mentor-question">{ready ? question : 'Bring a repository, then we’ll explore its structure together.'}</p>
-          {defenseState?.history.length ? <p className="repo-last-answer"><strong>You</strong>{defenseState.history[defenseState.history.length - 1].answer}</p> : null}
+          {defenseState?.history.length ? <><p className="repo-last-answer"><strong>You</strong>{defenseState.history[defenseState.history.length - 1].answer}</p><DefenseFollowup phase={defenseState.history[defenseState.history.length - 1].phase} answer={defenseState.history[defenseState.history.length - 1].answer} citations={defenseState.history[defenseState.history.length - 1].citations} onOpenSource={openCitation} /></> : null}
           <p className="repo-note">Observed code, documented claims, and your hypotheses are distinct. Static source does not establish runtime behavior or author intent.</p>
           {!session && ready && <p className="repo-note">Explore with a prompt now. Open a repository-backed studio session for voice and a saved defense.</p>}
           {session && ready && !defenseState && <button type="button" className="primary repo-start" disabled={busy} onClick={() => void run(startDefense)}>Start or resume defense</button>}
           {defenseState?.phase === 'complete' && <p role="status">Defense completed. Review the cited history below.</p>}
         </div>
         <div className="repo-composer">
-          {session && <StudioVoice key={`${session.id}:${snapshot?.snapshot_id ?? 'setup'}`} session={session} epoch={speechEpoch} events={speechEvents} disabled={!panelActive || busy || !ready || defenseState?.phase === 'complete'} onTranscript={text => setAnswer(current => current ? `${current}\n${text}` : text)} />}
+          {session && <StudioVoice key={`${session.id}:${snapshot?.snapshot_id ?? 'setup'}`} session={session} epoch={speechEpoch} events={speechEvents} disabled={beginnerOpen || !panelActive || busy || !ready || defenseState?.phase === 'complete'} onTranscript={text => setAnswer(current => current ? `${current}\n${text}` : text)} />}
           {ready && defenseState?.phase !== 'complete' && <>
             <label>Your explanation<textarea value={answer} maxLength={4000} disabled={busy} placeholder="Talk first, or type your reasoning here…" onChange={event => setAnswer(event.target.value)} /></label>
             {projectReflect && <Disclosure title="Reflection details"><p className="repo-note">Name the changed requirement and your alternative explicitly. Spoken explanations are not parsed into these fields.</p><label>Changed requirement<input value={changedRequirement} maxLength={2000} onChange={event => setChangedRequirement(event.target.value)} disabled={busy} /></label><label>Your alternative<input value={reflectAlternative} maxLength={2000} onChange={event => setReflectAlternative(event.target.value)} disabled={busy} /></label><label>Unknowns (optional)<textarea value={unknowns} onChange={event => setUnknowns(event.target.value)} placeholder="One unknown per line (up to 10)." disabled={busy} /></label></Disclosure>}
@@ -373,6 +384,7 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
           </>}
           {defenseState && <Disclosure title="Defense history">{defenseState.history.length ? defenseState.history.map((item, index) => <DefenseHistory key={index} value={item} onOpen={openSource} />) : <p>No answers recorded yet.</p>}{defenseState.synthesis?.basis && <p className="repo-note">{defenseState.synthesis.basis}</p>}</Disclosure>}
         </div>
+        </div>
       </section>
       <section className="repo-evidence" aria-label="Evidence browser">
         <header><h3><Icon name="code" />Source evidence</h3><p className="repo-note">Read the source. Cite the exact span. Keep inference separate.</p></header>
@@ -382,7 +394,7 @@ export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, sessio
           </Disclosure>
           {chosen.length > 0 && <div className="repo-selected"><strong>Selected source spans</strong><ul>{chosen.map(hit => <li key={`${hit.path}:${hit.start_line}:${hit.chunk_hash}`}><span>{hit.path}:{hit.start_line}–{hit.end_line}</span><button type="button" disabled={busy} aria-label={`Remove citation ${hit.path}:${hit.start_line}`} onClick={() => choose(hit, false)}>×</button></li>)}</ul></div>}
           <div className="repo-map"><h4>Repository map</h4>{map.length ? <ul>{map.map(item => <li key={item.path}><button type="button" disabled={busy} onClick={() => openSource(item.path)}><Icon name="code" />{item.path}</button></li>)}</ul> : <p className="repo-note">No source files listed yet.</p>}</div>
-          {view && <section className="repo-source-view" aria-label="Open source file"><h4>{view.path}</h4><pre>{view.content.split('\n').map((line, index) => `${String(index + 1).padStart(4, ' ')}  ${line}`).join('\n')}</pre></section>}
+          {view && <section className="repo-source-view" aria-label="Open source file"><h4>{view.path}</h4>{viewCitation && <p className="repo-note">Selected lines {viewCitation.start_line}–{viewCitation.end_line} · sha256:{viewCitation.chunk_hash}</p>}<pre>{view.content.split('\n').map((line, index) => <span key={index}>{viewCitation && index + 1 >= viewCitation.start_line && index + 1 <= viewCitation.end_line ? <mark>{`${String(index + 1).padStart(4, ' ')}  ${line}`}</mark> : `${String(index + 1).padStart(4, ' ')}  ${line}`}{'\n'}</span>)}</pre></section>}
           <Disclosure title="Saved evidence and decisions" onExpand={() => void run(loadDecisions)}>{cards.length ? cards.map((item, index) => <EvidenceCard key={item.evidence_card_id ?? index} value={item} onOpen={openSource} />) : <p>No saved evidence cards yet.</p>}{decisions.length ? decisions.map((item, index) => <DecisionCard key={index} value={item} />) : <p className="repo-note">No saved decisions yet.</p>}</Disclosure>
           <Disclosure title="Advanced evidence tools"><p className="repo-note">Optional manual tools. They are not required to talk through a defense.</p><fieldset disabled={busy} className="repo-manual"><legend className="sr-only">Manual evidence and decisions</legend><label>Topic<input value={topic} maxLength={200} onChange={event => setTopic(event.target.value)} /></label><label>Inferred rationale<textarea value={rationale} maxLength={400} onChange={event => setRationale(event.target.value)} /></label><label>Your alternative<textarea value={alternative} maxLength={2000} onChange={event => setAlternative(event.target.value)} /></label><button type="button" disabled={!topic.trim()} onClick={() => void run(makeEvidence)}>Create evidence card</button>{evidence && <EvidenceCard value={evidence} onOpen={openSource} />}
             {cards.map(item => item.evidence_card_id && <label key={item.evidence_card_id} className="studio-check"><input type="checkbox" checked={selectedCards.includes(item.evidence_card_id)} disabled={selectedCards.length >= MAX_CITATIONS && !selectedCards.includes(item.evidence_card_id)} onChange={event => { const id = item.evidence_card_id!; setSelectedCards(event.target.checked ? [...selectedCards, id] : selectedCards.filter(value => value !== id)); }} />{item.topic ?? 'Saved evidence card'} — use in a decision</label>)}

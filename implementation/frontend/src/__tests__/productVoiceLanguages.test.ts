@@ -50,6 +50,34 @@ describe('product voice languages and local independent selection', () => {
     unsubscribe();
     expect(saveSpeechPreferences(DEFAULT_SPEECH_PREFERENCES,{setItem:()=>{throw new Error('denied');}})).toBe(false);
   });
+  it('validates provider capability fields, languages and voices before accepting a reply', async () => {
+    const body = {documented:true,live_unverified:true,configured:false,stt_model:'prisma-v3.0',tts_model:'timbre-v3.0',
+      languages:SPEECH_LANGUAGES.map(item=>({...item,documented:true,live_unverified:true,compatible_voices:[...TTS_VOICES],code_mixing:false})),
+      voices:TTS_VOICES.map(id=>({id,model:'timbre-v3.0',languages:SPEECH_LANGUAGES.map(item=>item.code),documented:true,live_unverified:true}))};
+    const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>body}); vi.stubGlobal('fetch',fetcher);
+    expect(await fetchSpeechCapabilities()).toEqual(body);
+    const abort = new AbortController(); await fetchSpeechCapabilities('/api/v1/',abort.signal);
+    expect(fetcher).toHaveBeenLastCalledWith('/api/v1/speech/capabilities',{signal:abort.signal});
+    for (const patch of [{languages:[{...body.languages[0],compatible_voices:['unknown']}]},{voices:[{...body.voices[0],id:'unknown'}]},{voices:[{...body.voices[0],model:'timbre-v2.5'}]},{stt_model:'wrong'}]) {
+      fetcher.mockResolvedValueOnce({ok:true,json:async()=>({...body,...patch})});
+      await expect(fetchSpeechCapabilities()).rejects.toThrow();
+    }
+    fetcher.mockResolvedValueOnce({ok:false});
+    await expect(fetchSpeechCapabilities()).rejects.toThrow('unavailable');
+    expect(()=>resolveSpeechSelection({...DEFAULT_SPEECH_PREFERENCES,voice:'unknown' as never})).toThrow();
+    expect(()=>resolveLanguageMode('invented' as never,false)).toThrow();
+  });
+  it('rejects malformed cross-tab state and ignores unrelated keys', () => {
+    const callback=vi.fn(); const stop=subscribeSpeechPreferences(callback);
+    window.dispatchEvent(new StorageEvent('storage',{key:'unrelated',newValue:'{}'}));
+    expect(callback).toHaveBeenCalledOnce();
+    window.dispatchEvent(new StorageEvent('storage',{key:'viva.speech-preferences.v1',newValue:'{broken'}));
+    expect(callback).toHaveBeenLastCalledWith(DEFAULT_SPEECH_PREFERENCES);
+    window.dispatchEvent(new StorageEvent('storage',{key:null,newValue:null}));
+    expect(callback).toHaveBeenLastCalledWith(DEFAULT_SPEECH_PREFERENCES);
+    stop();
+    expect(loadSpeechPreferences({getItem:()=>{throw new Error('denied');}})).toEqual(DEFAULT_SPEECH_PREFERENCES);
+  });
   it('fetches only backend capability info and rejects malformed replies', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:true,json:async()=>({languages:[],voices:[]})}));
     await expect(fetchSpeechCapabilities()).rejects.toThrow();
@@ -62,7 +90,7 @@ describe('product voice physical thirty second frame boundary', () => {
     const frames:Uint8Array[]=[]; const writer=new PcmFrameWriter(frame=>frames.push(frame));
     writer.push(new Int16Array(480000)); writer.finish();
     expect(frames.reduce((sum,frame)=>sum+frame.length,0)).toBe(960000);
-    expect(frames.at(-1)?.length).toBe(512);
+    expect(frames[frames.length - 1]?.length).toBe(512);
     expect(()=>writer.push(new Int16Array(1))).toThrow();
   });
 });

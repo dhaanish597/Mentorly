@@ -15,7 +15,8 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from backend.app.core.errors import ApiAppException
 from backend.app.db.repository import RevisionConflictError, SQLiteRepository, TurnRecord
 from backend.app.models.domain import ClaimInterpretation, RevisionRef
-from backend.app.models.enums import ClaimType, TurnState
+from backend.app.models.enums import ClaimType, TurnState, SpeechLocale, TTSVoice
+from backend.app.speech.capabilities import speech_capabilities
 from backend.app.speech.gatekeeper import SpeechBusyError, SpeechQuotaExhaustedError
 from backend.app.speech.gnani_adapter import GnaniTransportError
 
@@ -25,6 +26,13 @@ router = APIRouter(tags=["speech"])
 class FixedVoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: RevisionRef
+    language: SpeechLocale | None = None
+    voice: TTSVoice | None = None
+
+
+@router.get('/speech/capabilities')
+async def speech_capability_info(request: Request) -> dict[str, object]:
+    return speech_capabilities(request.app.state.settings)
 
 
 _TEST_VOICE_TEXT = "Voice is ready. You can change the volume or continue with text."
@@ -72,8 +80,9 @@ async def _fixed_voice(session_id: UUID, req: FixedVoiceRequest, request: Reques
     except (RevisionConflictError, ValueError) as exc:
         raise ApiAppException(status_code=409, code="REVISION_CONFLICT", message="This voice request is superseded; restore the current problem.") from exc
     playback_id = str(uuid4())
+    selection = {key: value for key, value in {'language':req.language, 'voice':req.voice}.items() if value is not None}
     try:
-        result = await _await_connected_voice(request, request.app.state.speech.synthesize_fixed(str(session_id), revision, purpose=purpose, playback_id=playback_id))
+        result = await _await_connected_voice(request, request.app.state.speech.synthesize_fixed(str(session_id), revision, purpose=purpose, playback_id=playback_id, **selection))
         machine.assert_revision_matches(str(session_id), revision)
     except RevisionConflictError as exc:
         raise ApiAppException(status_code=409, code="REVISION_CONFLICT", message="This voice request is superseded; restore the current problem.") from exc
@@ -168,6 +177,25 @@ def _conversation_text(revision: RevisionRef, turn: TurnRecord) -> str:
     return f"For {title}, let's examine your reasoning. {question} I have not checked or confirmed your claim."
 
 
+@router.post('/sessions/{session_id}/conversation/text')
+async def conversation_text(session_id: UUID, req: ConversationVoiceRequest, request: Request) -> dict[str, object]:
+    """Authored reply independent of TTS availability; no hidden evidence or execution."""
+    from backend.app.api.routes_sessions import _get_repo_and_machine
+    repo, machine = _get_repo_and_machine()
+    sid = str(session_id)
+    try:
+        revision = machine.assert_revision_matches(sid, req.revision)
+        turn = _conversation_turn(repo, sid, req.turn_id, revision)
+        text = _conversation_text(revision, turn)
+        machine.assert_revision_matches(sid, revision)
+        if _conversation_turn(repo, sid, req.turn_id, revision) != turn:
+            raise RevisionConflictError('The learner capture changed.')
+    except RevisionConflictError as exc:
+        raise ApiAppException(status_code=409, code='REVISION_CONFLICT', message='Restore the current learner turn.') from exc
+    return {'text': text, 'turn_id': turn.id, 'revision': revision.model_dump(mode='json'),
+            'source': 'authored_public_contract'}
+
+
 @router.post("/sessions/{session_id}/speech/conversation")
 async def conversation_voice(session_id: UUID, req: ConversationVoiceRequest,
                              request: Request) -> Response:
@@ -180,8 +208,9 @@ async def conversation_voice(session_id: UUID, req: ConversationVoiceRequest,
         revision = machine.assert_revision_matches(sid, req.revision)
         turn = _conversation_turn(repo, sid, req.turn_id, revision)
         text = _conversation_text(revision, turn)
+        selection = {key: value for key, value in {'language':req.language, 'voice':req.voice}.items() if value is not None}
         result = await _await_connected_voice(request, request.app.state.speech.synthesize(
-            sid, text, revision, turn_id=turn.id, playback_id=playback_id))
+            sid, text, revision, turn_id=turn.id, playback_id=playback_id, **selection))
         machine.assert_revision_matches(sid, revision)
         # A re-record can replace the transcript without changing the revision/generation.
         if _conversation_turn(repo, sid, req.turn_id, revision) != turn:

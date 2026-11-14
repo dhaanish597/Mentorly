@@ -6,7 +6,9 @@
 
 export type ExerciseId = 'ex1_shortest_subarray' | 'ex2_binary_search' | 'ex3_max_product' | 'ex4_sum_even' | 'ex5_count_negative' | 'ex6_running_totals' | 'ex7_stable_unique' | 'ex8_rotate_right' | 'ex9_first_peak' | 'ex10_second_largest_distinct' | 'ex11_pair_sum_exists' | 'ex12_merge_sorted' | 'ex13_longest_increasing_run' | 'ex14_balance_point' | 'ex15_reverse_words' | 'ex16_normalize_spaces' | 'ex17_is_palindrome' | 'ex18_count_vowels' | 'ex19_first_unique_char' | 'ex20_run_lengths' | 'ex21_common_prefix' | 'ex22_digit_sum' | 'ex23_greatest_common_divisor' | 'ex24_factorial' | 'ex25_is_prime' | 'ex26_count_bits' | 'ex27_fizz_labels' | 'ex28_toggle' | 'ex29_all_true' | 'ex30_invert_flags' | 'ex31_balanced_brackets';
 export type SpecVersion = 'v1_positive_only' | 'v2_negatives_allowed' | 'v1_sorted_with_duplicates' | 'v1_bounded_ints' | 'v1_typed_bounded';
-export type LanguageMode = 'en-IN' | 'ta-IN,en-IN';
+export type LanguageMode = 'en-IN' | 'hi-IN' | 'ta-IN' | 'te-IN' | 'kn-IN' | 'ml-IN' | 'bn-IN' | 'gu-IN' | 'mr-IN' | 'pa-IN' | 'ta-IN,en-IN' | 'hi-IN,en-IN' | 'bn-IN,en-IN';
+export type SpeechLocale = 'en-IN' | 'hi-IN' | 'ta-IN' | 'te-IN' | 'kn-IN' | 'ml-IN' | 'bn-IN' | 'gu-IN' | 'mr-IN' | 'pa-IN';
+export type TTSVoice = 'Avinash' | 'Shivani' | 'Lakshmi' | 'Kalpana' | 'Shubham' | 'Prakash' | 'Devansh' | 'Yashraj' | 'Chetana' | 'Vasudha' | 'Riyaa' | 'Tarika' | 'Harshad';
 export type InteractionMode = 'VOICE' | 'TYPED_FALLBACK' | 'DEMO';
 export type TransportMode = 'REST' | 'WEBSOCKET' | 'TEXT';
 export type SessionState = 'IDLE' | 'SESSION_INITIALIZING' | 'READY' | 'SPEC_ACK_REQUIRED' | 'DELETED';
@@ -34,6 +36,8 @@ export interface TTSPlaybackRequest {
   revision: RevisionRef;
   artifact_id: string;
   hint_level?: HintLevel;
+  language?: SpeechLocale | 'auto' | null;
+  voice?: TTSVoice | null;
 }
 
 export interface HealthResponse {
@@ -393,6 +397,8 @@ export interface CreateSessionRequest {
   spec_version: SpecVersion;
   language_mode?: LanguageMode;
   interaction_mode?: InteractionMode;
+  voice?: TTSVoice | null;
+  spoken_language?: SpeechLocale | null;
 }
 
 export interface CreateSessionResponse {
@@ -403,6 +409,8 @@ export interface CreateSessionResponse {
   state: SessionState;
   learning_state: LearningState;
   spec_acknowledged: boolean;
+  voice?: TTSVoice | null;
+  spoken_language?: SpeechLocale | null;
 }
 
 export interface CodeUpdateRequest {
@@ -587,9 +595,9 @@ export interface TTSRequest {
   playback_id?: string | null;
   revision?: RevisionRef | null;
   text: string;
-  model?: string;
-  voice?: string;
-  language?: string;
+  model: 'timbre-v3.0';
+  voice?: TTSVoice;
+  language?: SpeechLocale | 'auto';
   speed?: number;
   audio_config?: TTSAudioConfig;
   cache_scope?: 'PUBLIC_GENERIC' | 'SESSION_SCOPED';

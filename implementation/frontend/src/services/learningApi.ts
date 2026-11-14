@@ -18,9 +18,10 @@ export interface LearningProgress {
 }
 export interface LearningFeedback { correct: boolean; message: string; hint?: string }
 export interface LearningReport { lesson_completed: boolean; summary: string }
+export interface LearningCoachMessage { id: string; role: string; kind: string; text: string }
 export interface LearningSession {
   id: string; lesson_id: string; epoch: number; mode: string; state: string; question: LearningQuestion;
-  coach_messages: string[]; answer_count: number; deadline: null; feedback?: LearningFeedback;
+  coach_messages: string[]; coach_message_refs: LearningCoachMessage[]; answer_count: number; hint_count?: number; deadline: null; feedback?: LearningFeedback;
   report?: LearningReport; hint?: string;
 }
 
@@ -77,6 +78,8 @@ export function parseLearningSession(value: unknown): LearningSession {
   return {
     id: text(raw.id), lesson_id: text(raw.lesson_id), epoch: count(raw.epoch), mode: text(raw.mode), state: text(raw.state), question: question(raw.question), answer_count: count(raw.answer_count), deadline: null,
     coach_messages: list(raw.coach_messages).map(value => typeof value === 'string' ? value : text(object(value).text ?? object(value).message)),
+    coach_message_refs: list(raw.coach_messages).flatMap(value => { if (typeof value === 'string') return []; const item = object(value); return typeof item.id === 'string' && typeof item.text === 'string' ? [{ id: item.id, text: item.text, role: typeof item.role === 'string' ? item.role : 'assistant', kind: typeof item.kind === 'string' ? item.kind : 'message' }] : []; }),
+    ...(raw.hint_count == null ? {} : { hint_count: count(raw.hint_count) }),
     ...(feedback ? { feedback: { correct: feedback.correct === true, message: text(feedback.message), ...(typeof feedback.hint === 'string' ? { hint: feedback.hint } : {}) } } : {}),
     ...(report ? { report: { lesson_completed: report.lesson_completed === true, summary: typeof report.summary === 'string' ? report.summary : '' } } : {}),
     ...(typeof raw.hint === 'string' ? { hint: raw.hint } : {}),
@@ -89,5 +92,6 @@ export const learningApi = {
   async createSession(workspace: Workspace, lessonId: string, languageMode: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest('/learning/sessions', { method: 'POST', workspace, signal, body: { lesson_id: lessonId, mode: 'practice', language_mode: languageMode } })); },
   async getSession(workspace: Workspace, id: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(id)}`, { workspace, signal })); },
   async answer(workspace: Workspace, session: LearningSession, answer: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/answers`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id, answer } })); },
+  async restart(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/restart`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch } })); },
   async hint(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/hints`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id } })); },
 };

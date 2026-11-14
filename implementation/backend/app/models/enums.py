@@ -45,10 +45,50 @@ class SpecVersion(StrEnum):
     V1_TYPED_BOUNDED = "v1_typed_bounded"
 
 
+class SpeechLocale(StrEnum):
+    EN_IN = "en-IN"
+    HI_IN = "hi-IN"
+    TA_IN = "ta-IN"
+    TE_IN = "te-IN"
+    KN_IN = "kn-IN"
+    ML_IN = "ml-IN"
+    BN_IN = "bn-IN"
+    GU_IN = "gu-IN"
+    MR_IN = "mr-IN"
+    PA_IN = "pa-IN"
+
+
 class LanguageMode(StrEnum):
     EN_IN = "en-IN"
+    HI_IN = "hi-IN"
+    TA_IN = "ta-IN"
+    TE_IN = "te-IN"
+    KN_IN = "kn-IN"
+    ML_IN = "ml-IN"
+    BN_IN = "bn-IN"
+    GU_IN = "gu-IN"
+    MR_IN = "mr-IN"
+    PA_IN = "pa-IN"
     TA_EN_CODEMIX = "ta-IN,en-IN"
     TA_IN_EN_IN = "ta-IN,en-IN"
+    HI_IN_EN_IN = "hi-IN,en-IN"
+    BN_IN_EN_IN = "bn-IN,en-IN"
+
+
+class TTSVoice(StrEnum):
+    AVINASH = "Avinash"
+    SHIVANI = "Shivani"
+    LAKSHMI = "Lakshmi"
+    KALPANA = "Kalpana"
+    SHUBHAM = "Shubham"
+    PRAKASH = "Prakash"
+    DEVANSH = "Devansh"
+    YASHRAJ = "Yashraj"
+    CHETANA = "Chetana"
+    VASUDHA = "Vasudha"
+    RIYAA = "Riyaa"
+    TARIKA = "Tarika"
+    HARSHAD = "Harshad"
 
 
 class InteractionMode(StrEnum):
