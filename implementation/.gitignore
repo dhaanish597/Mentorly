@@ -1,0 +1,40 @@
+\# Python  
+\_\_pycache\_\_/  
+\*.py\[cod\]  
+\*\$py.class  
+\*.egg-info/  
+.pytest\_cache/  
+.mypy\_cache/  
+.ruff\_cache/  
+.venv/  
+venv/  
+dist/  
+build/
+
+\# Node / Frontend  
+node\_modules/  
+frontend/dist/  
+frontend/.vite/  
+\*.tsbuildinfo
+
+\# Environment & Secrets  
+.env  
+.env.local  
+.env.\*.local  
+\*.pem  
+\*.key
+
+\# Local Data / SQLite / Audio Cache  
+data/  
+\*.db  
+\*.sqlite  
+\*.sqlite3  
+\*.sqlite3-wal  
+\*.sqlite3-shm  
+\*.wav  
+\*.pcm
+
+\# OS / Editor  
+.DS\_Store  
+.vscode/  
+.idea/  

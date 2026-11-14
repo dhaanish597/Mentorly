@@ -40,6 +40,12 @@ EXPECTED_TABLES = {
 }
 
 
+def available_migrations() -> list[str]:
+    directory = Path(__file__).resolve().parents[2] / "app" / "db" / "migrations"
+    versions = [path.name.split("_", 1)[0] for path in directory.glob("*.sql")]
+    return sorted(versions, key=int)
+
+
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -62,14 +68,15 @@ class DatabaseMigrationAndRepositoryTests(unittest.TestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def test_initial_migration_wal_fk_tables_and_idempotency(self) -> None:
+        expected_versions = available_migrations()
         applied_first = self.repo.initialize()
-        self.assertEqual(applied_first, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013"])
+        self.assertEqual(applied_first, expected_versions)
 
         applied_second = self.repo.initialize()
         self.assertEqual(applied_second, [])
 
         recorded = get_applied_migrations(self.db_path)
-        self.assertEqual(len(recorded), 13)
+        self.assertEqual([migration.version for migration in recorded], expected_versions)
         self.assertEqual(recorded[0].version, "0001")
         self.assertEqual(recorded[0].name, "initial")
 

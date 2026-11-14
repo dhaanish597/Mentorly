@@ -27,3 +27,7 @@ GNANI_BUILD_HANDOFF_BUNDLE/
 implementation/artifacts/
 **/data/
 **/.hypothesis/
+*.log
+.coverage
+*.egg-info/
+.claude/

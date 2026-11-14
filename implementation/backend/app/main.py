@@ -10,6 +10,7 @@ from typing import AsyncIterator
 import uuid
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.routes_meta import router as meta_router
@@ -95,6 +96,13 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
         token = set_request_id(request_id)
         settings_token = request_settings.set(active_settings)
         try:
+            if request.url.path.rstrip('/') in {
+                '/api/v1/gamification/dashboard', '/api/v1/gamification/leaderboard',
+                '/api/v1/gamification/quiz/submit',
+            }:
+                return JSONResponse(status_code=410, content={
+                    'detail': 'Legacy personalization retired: use authenticated /api/v1/learning progress and assessments.',
+                }, headers={'Cache-Control': 'no-store'})
             response = await call_next(request)
             response.headers["X-Request-ID"] = request_id
             if request.url.path.startswith(("/api/v1/studio", "/api/v1/repos")):

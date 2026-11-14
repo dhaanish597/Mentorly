@@ -1,0 +1,43 @@
+name: Phase 0 & Phase 1 Offline CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend_and_worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend and worker dependencies
+        run: python -m pip install -r backend/requirements.txt -r exec_worker/requirements.worker.txt
+      - name: Check committed OpenAPI & TypeScript schema drift first (no rewrite)
+        run: |
+          PYTHONPATH=backend:. python backend/scripts/export_openapi.py --check
+          PYTHONPATH=backend:. python scripts/check_schema_drift.py --self-test
+          python scripts/check_secrets.py
+      - name: Run Phase 0 backend and Phase 1 offline worker tests
+        run: |
+          PYTHONPATH=backend:. python -m unittest discover -s backend/tests -v
+          PYTHONPATH=backend:. pytest backend/tests -v
+          PYTHONPATH=backend:. python -m unittest discover -s exec_worker/tests -p "test_*.py" -v
+          PYTHONPATH=backend:. pytest exec_worker/tests -v -rs
+          python -m compileall -q backend exec_worker
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run typecheck
+      - run: npx vitest run
+      - run: npm run build

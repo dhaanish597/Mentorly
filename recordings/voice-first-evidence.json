@@ -1,0 +1,84 @@
+{
+  "learner_voice": "Synthesized voice through virtual microphone, real AudioWorklet/STT; no transcript injection",
+  "mentor_voice": "Actual app WebAudio playback and backend TTS",
+  "requests": [
+    {
+      "path": "sessions",
+      "status": 200
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/speech/introduction",
+      "status": 200
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/turns/audio",
+      "status": 200,
+      "transcript": "I will use a sliding_window. I expand the right boundary until the sum reaches the target, then I save the length and shrink from the left."
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/speech/conversation",
+      "status": 200
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/turns/audio",
+      "status": 200,
+      "transcript": "Wait, I want to finish my thought before shrinking. I record the best length. Positive numbers make the sum smaller when I remove the left element."
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/turns/text",
+      "status": 200
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/speech/conversation",
+      "status": 200
+    },
+    {
+      "path": "sessions/bb2caa0c-5069-406f-b890-88aad90982fa/verify",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "barge_in_stopped_mentor": true,
+  "retained_transcript": "I will use a sliding_window. I expand the right boundary until the sum reaches the target, then I save the length and shrink from the left. Wait, I want to finish my thought before shrinking. I record the best length. Positive numbers make the sum smaller when I remove the left element.",
+  "code_submit_state": "Evidence\nSession\nCancel / Stop Audio\nVerify Saved Repair\nRetry Unavailable Execution\nBounded Verification Result\nVerification: EXECUTION_UNAVAILABLE\n\nExecution worker unavailable. This is not a learner-code failure. Retry when capacity returns.\n\nBounded verification process\n\nCurated cases: 0 / 10\n\nGenerated cases: 0 / 0\n\nAdvanced verification diagnostics",
+  "audio_events": [
+    {
+      "kind": "mentor-start",
+      "at": 0.268,
+      "duration": 10.72
+    },
+    {
+      "kind": "learner-start",
+      "at": 11.194,
+      "duration": 7.531020833333334
+    },
+    {
+      "kind": "mentor-start",
+      "at": 36.848,
+      "duration": 15.76
+    },
+    {
+      "kind": "learner-start",
+      "at": 38.299,
+      "duration": 8.512479166666667
+    },
+    {
+      "kind": "mentor-start",
+      "at": 58.107,
+      "duration": 15.76
+    }
+  ],
+  "recorded_audio_tracks": [
+    {
+      "kind": "mentor",
+      "offset": 0.267,
+      "path": "/Users/dhaanish/Desktop/VIVA/recordings/voice-first-live-0-mentor.webm"
+    },
+    {
+      "kind": "learner",
+      "offset": 11.101,
+      "path": "/Users/dhaanish/Desktop/VIVA/recordings/voice-first-live-1-learner.webm"
+    }
+  ],
+  "video": "/Users/dhaanish/Desktop/VIVA/recordings/viva_voice_first_demo.mp4"
+}

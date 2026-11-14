@@ -1,0 +1,75 @@
+import '@testing-library/jest-dom/vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { InterviewPage } from '../features/interview/InterviewPage';
+import type { InterviewApi, InterviewReport, InterviewSession } from '../features/interview/types';
+
+const workspace = { id: 'workspace', token: 'secret' };
+const question = { id: 'q1', text: 'Explain your approach.', kind: 'primary' as const, parent_id: null, source_refs: [{ source: 'exercise_catalog', exercise_id: 'ex2_binary_search', spec_version: 'v1' }] };
+const session: InterviewSession = { id: 'session', type: 'dsa', difficulty: 'beginner', topics: [], duration_minutes: 15, language_mode: 'en-IN', epoch: 1, state: 'active', deadline_at: '2099-01-01T00:00:00+00:00', started_at: '2026-01-01T00:00:00+00:00', question, introduction: { text: 'One question at a time. Feedback after finishing.', source_refs: [] }, acknowledgement: null, report: null };
+const report: InterviewReport = { session_id: 'session', completion_reason: 'finished', completed_at: '2026-01-01', answered_count: 1, semantic_validity: { status: 'unassessed', reason: 'No semantic grader.' }, technical_correctness: { status: 'unassessed_no_execution_evidence', reason: 'No server execution evidence.' }, psychology: { status: 'not_assessed', reason: 'No psychological inference.' }, answers: [{ question_id: 'q1', question: question.text, answer: 'because I scan', code: null, indicators: [{ id: 'reasoning_marker', label: 'Reasoning marker mentioned', value: 1, maximum: 1, status: 'observed_text_only', excerpts: [{ start: 0, end: 7, text: 'because' }], semantic_validity: 'unassessed' }] }], recommendations: [{ exercise_id: 'ex2_binary_search', spec_version: 'v1', lesson_id: null, reason: 'Practice boundaries.', missing_indicators: [] }], limitations: ['Keyword presence does not establish correctness.'] };
+function api(): InterviewApi {
+  return { getConfig: vi.fn().mockResolvedValue({ types: ['dsa', 'cs', 'system_design', 'codebase_defense'], difficulties: ['beginner', 'intermediate', 'advanced'], duration_minutes: { minimum: 5, maximum: 60, default: 15 }, language_modes: ['en-IN', 'ta-IN,en-IN'], camera_default: false }), getCatalog: vi.fn().mockResolvedValue({ topics: { dsa: ['binary-search'], cs: ['operating-systems'], system_design: ['capacity'], codebase_defense: ['ownership'] }, dsa_exercises: [] }), createSession: vi.fn().mockResolvedValue(session), getSession: vi.fn().mockResolvedValue(session), answer: vi.fn().mockResolvedValue({ ...session, epoch: 2, acknowledgement: { text: 'Answer recorded.', source_refs: [] }, question: { ...question, id: 'q2', text: 'What reasoning supports your choice?', kind: 'followup', parent_id: 'q1' } }), finish: vi.fn().mockResolvedValue(report) };
+}
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+async function start(helper: InterviewApi) {
+  render(<InterviewPage api={helper} workspace={workspace} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Start interview' }));
+  await screen.findByText(question.text);
+}
+describe('interview assessment flow', () => {
+  it('starts without requesting camera or credentials and submits selected configuration', async () => {
+    const media = vi.fn(); vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: media } });
+    const helper = api(); await start(helper);
+    expect(media).not.toHaveBeenCalled();
+    expect(helper.createSession).toHaveBeenCalledWith({ type: 'dsa', difficulty: 'beginner', topics: [], duration_minutes: 15, language_mode: 'en-IN' });
+    expect(screen.queryByText('correct')).not.toBeInTheDocument();
+  });
+  it('records only current epoch answers and shows report only after finishing', async () => {
+    const helper = api(); await start(helper);
+    fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'because I scan' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit answer' }));
+    await screen.findByText('Answer recorded.');
+    expect(helper.answer).toHaveBeenCalledWith('session', { expected_epoch: 1, answer: 'because I scan', code: undefined });
+    expect(screen.queryByRole('heading', { name: 'Interview report' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Finish interview' }));
+    await screen.findByRole('heading', { name: 'Interview report' });
+    expect(helper.finish).toHaveBeenCalledWith('session', 2);
+    expect(screen.getByText('unassessed_no_execution_evidence')).toBeInTheDocument();
+    expect(screen.getByText('because')).toBeInTheDocument();
+  });
+  it('retains an answer after error and explicitly reloads a conflicted epoch', async () => {
+    const helper = api(); vi.mocked(helper.answer).mockRejectedValueOnce(new Error('Epoch conflict. Reload the session.'));
+    await start(helper);
+    fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'draft retained' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit answer' }));
+    await screen.findByRole('alert');
+    expect(screen.getByLabelText('Your answer')).toHaveValue('draft retained');
+    fireEvent.click(screen.getByRole('button', { name: 'Reload session' }));
+    await waitFor(() => expect(helper.getSession).toHaveBeenCalledWith('session'));
+  });
+  it('supports recovery from configuration failure', async () => {
+    const helper = api(); vi.mocked(helper.getConfig).mockRejectedValueOnce(new Error('offline'));
+    render(<InterviewPage api={helper} workspace={workspace} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry setup' }));
+    await screen.findByRole('button', { name: 'Start interview' });
+  });
+  it('requests a local preview only after permission and stops tracks on unmount', async () => {
+    const stop = vi.fn(); const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] });
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+    const helper = api(); const { unmount } = render(<InterviewPage api={helper} workspace={workspace} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Enable local camera preview' }));
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledWith({ video: true, audio: false }));
+    await screen.findByRole('button', { name: 'Turn camera off' });
+    unmount(); expect(stop).toHaveBeenCalled();
+  });
+  it('cleans a pending camera permission stream if the page leaves first', async () => {
+    const stop = vi.fn(); let resolve!: (stream: MediaStream) => void;
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(() => new Promise<MediaStream>(r => { resolve = r; })) } });
+    const helper = api(); const { unmount } = render(<InterviewPage api={helper} workspace={workspace} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Enable local camera preview' }));
+    unmount();
+    await act(async () => resolve({ getTracks: () => [{ stop }] } as unknown as MediaStream));
+    expect(stop).toHaveBeenCalled();
+  });
+});

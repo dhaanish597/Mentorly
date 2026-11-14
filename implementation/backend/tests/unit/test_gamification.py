@@ -1,13 +1,11 @@
-"""Unit tests for gamification, daily quizzes, leaderboards, and teachers."""
-from datetime import date, datetime, timezone
-import json
+"""Retired personalization routes and retained public teacher/path contracts."""
 from pathlib import Path
 import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
 
-from backend.app.coaching.teachers import TEACHERS, get_teacher_for_subject
+from backend.app.coaching.teachers import get_teacher_for_subject
 from backend.app.core.config import Settings
 from backend.app.db.repository import SQLiteRepository
 from backend.app.main import create_app
@@ -57,52 +55,43 @@ class GamificationApiTests(unittest.TestCase):
         slugs = [p["slug"] for p in paths]
         self.assertEqual(slugs, ["dsa", "aptitude", "system_design", "cs_fundamentals", "verbal"])
 
-    def test_dashboard_endpoint(self) -> None:
-        res = self.client.get("/api/v1/gamification/dashboard")
-        self.assertEqual(res.status_code, 200)
-        data = res.json()
-        self.assertIn("daily_quiz", data)
-        self.assertIn("leaderboard", data)
-        self.assertIn("graphs", data)
-        self.assertIn("achievements", data)
-        self.assertIn("weekly_missions", data)
-        self.assertEqual(len(data["achievements"]), 10)
-        self.assertGreaterEqual(len(data["leaderboard"]), 1)
+    def test_legacy_dashboard_is_retired_without_personalized_data(self) -> None:
+        for query in ("", "?user_id=test-student-1"):
+            with self.subTest(query=query):
+                res = self.client.get(f"/api/v1/gamification/dashboard{query}")
+                self.assertEqual(res.status_code, 410)
+                self.assertEqual(res.headers["Cache-Control"], "no-store")
+                data = res.json()
+                self.assertIn("learning", data["detail"])
+                for field in ("daily_quiz", "leaderboard", "graphs", "achievements", "weekly_missions"):
+                    self.assertNotIn(field, data)
 
-    def test_quiz_submit_and_duplicate_prevention(self) -> None:
-        dash_res = self.client.get("/api/v1/gamification/dashboard?user_id=test-student-1")
-        dash_data = dash_res.json()
-        quiz = dash_data["daily_quiz"]
-        self.assertIsNotNone(quiz)
+    def test_legacy_quiz_submission_and_replay_are_retired(self) -> None:
+        submission = {
+            "quiz_id": "quiz-2026-11-15",
+            "selected_option_index": 0,
+            "user_id": "test-student-1",
+        }
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                res = self.client.post("/api/v1/gamification/quiz/submit", json=submission)
+                self.assertEqual(res.status_code, 410)
+                self.assertEqual(res.headers["Cache-Control"], "no-store")
+                data = res.json()
+                self.assertIn("learning", data["detail"])
+                for field in ("already_completed", "is_correct", "explanation", "xp_awarded"):
+                    self.assertNotIn(field, data)
 
-        # Submit answer
-        submit_res = self.client.post(
-            "/api/v1/gamification/quiz/submit",
-            json={"quiz_id": quiz["id"], "selected_option_index": 0, "user_id": "test-student-1"},
-        )
-        self.assertEqual(submit_res.status_code, 200)
-        result = submit_res.json()
-        self.assertFalse(result["already_completed"])
-        self.assertIn("is_correct", result)
-        self.assertIn("explanation", result)
-
-        # Duplicate submit
-        dup_res = self.client.post(
-            "/api/v1/gamification/quiz/submit",
-            json={"quiz_id": quiz["id"], "selected_option_index": 0, "user_id": "test-student-1"},
-        )
-        self.assertEqual(dup_res.status_code, 200)
-        dup_result = dup_res.json()
-        self.assertTrue(dup_result["already_completed"])
-        self.assertEqual(dup_result["xp_awarded"], 0)
-
-    def test_leaderboard_periods(self) -> None:
+    def test_legacy_leaderboard_periods_are_retired(self) -> None:
         for period in ("daily", "weekly", "all_time"):
-            res = self.client.get(f"/api/v1/gamification/leaderboard?period={period}")
-            self.assertEqual(res.status_code, 200)
-            data = res.json()
-            self.assertEqual(data["period"], period)
-            self.assertIsInstance(data["rankings"], list)
+            with self.subTest(period=period):
+                res = self.client.get(f"/api/v1/gamification/leaderboard?period={period}")
+                self.assertEqual(res.status_code, 410)
+                self.assertEqual(res.headers["Cache-Control"], "no-store")
+                data = res.json()
+                self.assertIn("learning", data["detail"])
+                self.assertNotIn("rankings", data)
+                self.assertNotIn("user_rank", data)
 
 
 if __name__ == "__main__":

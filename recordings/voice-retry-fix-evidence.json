@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-15",
+  "app": "http://127.0.0.1:5181",
+  "scenario": "Real AudioWorklet/STT capture with a second manual send while the prior mentor synthesis was in flight",
+  "learner_voice": "Synthesized audio through a virtual microphone; real backend recognition",
+  "audio_upload_statuses": [200, 200],
+  "superseded_mentor_status": 409,
+  "next_mentor_status": 200,
+  "retained_transcript": "I will use a sliding_window. I expand the right boundary until the sum reaches the target, then I save the length and shrink from the left. Wait, I want to finish my thought before shrinking.",
+  "microphone_still_recording": true,
+  "recognition_error_banner": false,
+  "browser_console_errors": [],
+  "frontend_tests": 417,
+  "focused_backend_tests": 98,
+  "typecheck": "passed",
+  "lint": "passed",
+  "production_build": "passed with existing Monaco chunk-size warning",
+  "retry_recovery_regressions": "passed: retained bytes and authoritative revision; text-only transition; aborted STT replaced by TTS",
+  "backend_restarted_with_user_approval": true
+}

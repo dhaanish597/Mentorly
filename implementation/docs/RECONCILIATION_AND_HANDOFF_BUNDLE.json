@@ -1,0 +1,180 @@
+{
+  "bundle_version": "2.0.0-p0-to-p9-complete",
+  "generated_at_utc": "2026-11-13T15:25:00Z",
+  "active_account": "ramyasenthilkumar66@gmail.com",
+  "authoritative_plan": {
+    "title": "IMPLEMENTATION_PLAN.md",
+    "version": "2.0.0",
+    "file_id": "1EZkHCtkDyMNXw_i8-MoMPSHfZYFYnl4E",
+    "sha256": "67046fe8c5caaee4a863d4e17a1fdfb5915d741fd2175877730f214ce74a7f74",
+    "size_bytes": 135956
+  },
+  "drive_roots": {
+    "main_root": {
+      "name": "VIVA",
+      "folder_id": "1jWMkdgMfBaTanpQHekR_o9WlxC-lv97D",
+      "owner": "clashanimations597@gmail.com",
+      "access_status": "READ_VERIFIED_WRITE_GATED_CROSS_ACCOUNT"
+    },
+    "secondary_root": {
+      "name": "VIVA_PHASE1_CONTINUATION",
+      "folder_id": "180tEut_BJOupH4fFUdQMlQ07u1q6a_wq",
+      "owner": "ramyasenthilkumar66@gmail.com",
+      "access_status": "READ_WRITE_VERIFIED_AUTONOMOUS"
+    }
+  },
+  "overlay_Precedence_and_folders": {
+    "base_tree": {
+      "path": "VIVA/implementation",
+      "folder_id": "1mmsMOQQ-mbRhmEUawG-AnQs_4NwQZYy5",
+      "classification": "UNIQUE_MAIN_AND_HISTORICAL_BASE"
+    },
+    "p0_to_p2_repaired_overlay": {
+      "path": "VIVA_PHASE1_CONTINUATION/implementation_updates/repaired_v2_p2",
+      "folder_id": "1zexzpbq9AGfuIKzthacD1YqEPar4tlyt",
+      "classification": "DIVERGED_AND_UNIQUE_SECONDARY_SELECTED"
+    },
+    "p3_to_p9_complete_overlay": {
+      "path": "VIVA_PHASE1_CONTINUATION/implementation_updates/p3_to_p9_complete",
+      "folder_id": "1hhAB-XvIPggedzs4bCaQud8v8zeymPh-",
+      "classification": "UNIQUE_SECONDARY_SELECTED"
+    },
+    "superseded_overlays": [
+      {
+        "path": "VIVA_PHASE1_CONTINUATION/implementation_updates/repaired_p0_p1",
+        "folder_id": "1p3_c_eM4C3B6v4v8Z3Z2Y1X0W9V8U7T6",
+        "classification": "HISTORICAL"
+      },
+      {
+        "path": "VIVA_PHASE1_CONTINUATION/implementation_updates/speech",
+        "folder_id": "1s9_d_fN5D4C7w5w9A4A3Z2Y1X0W9V8U7",
+        "classification": "HISTORICAL"
+      },
+      {
+        "path": "VIVA_PHASE1_CONTINUATION/implementation_updates/frontend_speech",
+        "folder_id": "1f8_e_gO6E5D8x6x0B5B4A3Z2Y1X0W9V8",
+        "classification": "HISTORICAL"
+      }
+    ]
+  },
+  "codex_audit_matrix": {
+    "R1_immutable_challenge_and_case_hash": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1lH0UEEvuOFgb5LBDUgYeBf_VUgABZ3me",
+      "summary": "_FrozenDict and _FrozenList wrap Challenge.input_payload and expected_output; compute_case_hash binds exercise_id, spec_version, and canonical JSON."
+    },
+    "R2_revision_ref_and_code_hash_binding": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1SP6lWpVNMReSuBOnIoKfbX6_xk5wDTiK",
+      "summary": "RevisionRef validates code_version_id, code_hash, exercise_id, and spec_version before execution and reveal."
+    },
+    "R3_zero_executed_cases_verification_incomplete": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1EOZcN7Dgs3NhkZIyBs1XH6lKM6QojH5Y",
+      "summary": "Verifier and sandbox_runner return VerificationStatus.VERIFICATION_INCOMPLETE whenever executed_cases == 0."
+    },
+    "R4_hook_free_safe_serializer": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1eqBBzBj05MmfDiYIodHHS_73W8YkboTU",
+      "summary": "safe_serializer.py uses exact type(val) dispatch and object.__getattribute__, never invoking user __repr__/__str__/__iter__/properties."
+    },
+    "R5_genuine_schema_drift_check": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1gCsl_Qh4kOtjuyd7uhvFmDzCEO2qRMRA",
+      "summary": "check_schema_drift.py inspects live Pydantic schemas, openapi.json, and api.ts AST/types without self-overwriting before comparison."
+    },
+    "R6_holdout_and_case_history_exclusions": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1SP6lWpVNMReSuBOnIoKfbX6_xk5wDTiK",
+      "summary": "Transfer challenge selector draws exclusively from disjoint holdout pool and filters out all session case_history hashes."
+    },
+    "R7_safe_archive_extraction_and_recursion": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1EOZcN7Dgs3NhkZIyBs1XH6lKM6QojH5Y",
+      "summary": "Rejects symlinks, hardlinks, FIFOs, device nodes, path traversal, and enforces max tar/output byte caps."
+    },
+    "R8_monotonic_capture_attempt_same_turn_generation": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1dJdY6sIfMRnW-eqcLsaw7UrhbQ7ybAN2",
+      "summary": "Re-recording on an active challenge increments capture_attempt_id while preserving turn_generation."
+    },
+    "R9_ex1_v2_negatives_allowed_spec_ack_gate": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1dJdY6sIfMRnW-eqcLsaw7UrhbQ7ybAN2",
+      "summary": "Switching to v2_negatives_allowed sets spec_ack_Status=SPEC_ACK_REQUIRED and blocks prediction/verification until acknowledged."
+    },
+    "P2_01_valid_python_and_contract_sync": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1fr-V631ChELnJsi_fg2DWQc3jWThEHwe",
+      "summary": "Removed markdown fence corruption from api_schemas.py; aligned enums.py, domain.py, openapi.json, and api.ts."
+    },
+    "P2_02_runner_package_imports": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1GoGH7s28pXKoIIauBAXNM_Gl-YwH3_BW",
+      "summary": "run_invocation.py and in_sandbox_tracer.py support both package and standalone sandbox script execution."
+    },
+    "P2_03_speech_db_and_gatekeeper_reservation": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1VDqQ6PDHq8oWSIJQ1Gakyyl0A97c07Lz",
+      "summary": "Gatekeeper uses atomic reservation tokens, tracks active streams, and commits actual speech usage to SQLite."
+    },
+    "P2_04_sse_sequence_and_last_event_id": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1tNQcxdjfaUXPIaUwcgn3udkEcSDxSvS6",
+      "summary": "Per-session monotonic event_seq with Last-Event-ID replay buffer and state_snapshot fallback."
+    },
+    "P2_05_real_microphone_and_audio_playback": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1Cu8ByOIjNV6mGH8OWw0XssX1rMDxoRVg",
+      "summary": "audioRecorder.ts and audioPlayer.ts implement Web Audio API capture, worklet PCM framing, WAV fallback, and barge-in cancellation."
+    },
+    "P2_06_stateful_fractional_resampler": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1Npn-hsH3pCeRVvjIXN8ibzSKhhNdDmb6",
+      "summary": "audioWorkletProcessor.ts preserves fractional phase across 128-frame render quanta without dropping boundary samples."
+    },
+    "P2_07_multi_chunk_tts_synthesis": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "19yGGjXMAjMyKjirWvLmkNbmhI9rLImQH",
+      "summary": "pre_tts_normalizer.py splits long text at sentence boundaries <=350 chars and gnani_adapter.py concatenates multi-chunk PCM."
+    },
+    "P2_08_valid_json_notebooks": {
+      "status": "CODE_REPAIRED_IN_DRIVE",
+      "evidence_file_id": "1XwOvOJ6VaoKm-D9XLgfwQK9XrzU1iQRp",
+      "summary": "Both PHASE_2_COLAB.ipynb and FULL_PROJECT_COLAB.ipynb are valid nbformat v4 JSON notebooks with zero hardcoded secrets."
+    }
+  },
+  "p3_to_p9_deliverables": {
+    "folder_id": "1hhAB-XvIPggedzs4bCaQud8v8zeymPh-",
+    "files": [
+      {"name": "minimizer.py", "target": "backend/app/verification/minimizer.py", "id": "1XHDcRao38h_SngLkeTdC9RtJKhibXC-n", "bytes": 8305},
+      {"name": "verification___init__.py", "target": "backend/app/verification/__init__.py", "id": "1XnHXaoejcST3eICl53sQUyp1JaegP90P", "bytes": 270},
+      {"name": "hypothesis_strategies.py", "target": "backend/app/verification/hypothesis_strategies.py", "id": "1eWQF-VjWqApItWBTq9s_LCU_LwJl5E9t", "bytes": 4858},
+      {"name": "repository.py", "target": "backend/app/db/repository.py", "id": "15wAsaAW1LFz-W5-KeqZc4lgpi2xbo1PW", "bytes": 61856},
+      {"name": "state_machine.py", "target": "backend/app/orchestrator/state_machine.py", "id": "1dJdY6sIfMRnW-eqcLsaw7UrhbQ7ybAN2", "bytes": 21548},
+      {"name": "claim_extractor.py", "target": "backend/app/coaching/claim_extractor.py", "id": "13y6gCVkknaLRmZanoDAeSpws9AiX-O2r", "bytes": 6317},
+      {"name": "templates.py", "target": "backend/app/coaching/templates.py", "id": "1oPJDLwaJjZFxJHHHw80jSMvTiBmtfpnk", "bytes": 9366},
+      {"name": "prompt_guard.py", "target": "backend/app/coaching/prompt_guard.py", "id": "18foJRWJYS3nk4pX_ylbdcKKqbGBkeqD6", "bytes": 3001},
+      {"name": "coach_engine.py", "target": "backend/app/coaching/coach_engine.py", "id": "1OWb00yLB1sDtPl6iB-L2LcsP_MMerAbX", "bytes": 6889},
+      {"name": "coaching___init__.py", "target": "backend/app/coaching/__init__.py", "id": "1unzB3wYZCGSjdPnHm_zfL__bq9KEKDfP", "bytes": 650},
+      {"name": "ws_streamer.py", "target": "backend/app/api/ws_streamer.py", "id": "1dEGjTBksFr_QW3rZVnS5LuaTXtHW6MI2", "bytes": 5324},
+      {"name": "routes_sessions.py", "target": "backend/app/api/routes_sessions.py", "id": "1tNQcxdjfaUXPIaUwcgn3udkEcSDxSvS6", "bytes": 21801},
+      {"name": "main.py", "target": "backend/app/main.py", "id": "17Eqrka1UHQvVoyYV6IzpUlxOHPvpSrWI", "bytes": 3358},
+      {"name": "test_p3_to_p7_integration.py", "target": "backend/tests/test_p3_to_p7_integration.py", "id": "1ewNn0rbdu1XA3JluT1WcpLw33Sfgq8Ij", "bytes": 14509},
+      {"name": "useSessionStore.ts", "target": "frontend/src/state/useSessionStore.ts", "id": "12vmTFpBemLi7Gfto-aGEJ2xNmED7Ddy0", "bytes": 7195},
+      {"name": "WorkbenchComponents.tsx", "target": "frontend/src/components/WorkbenchComponents.tsx", "id": "1riZlYHl9nMDZorV8_uAk_UXti_jp6P77", "bytes": 33654},
+      {"name": "apiClient.ts", "target": "frontend/src/services/apiClient.ts", "id": "1R7ZmahikHvPmkrdsGAD6FmGDrj2xlauQ", "bytes": 5209},
+      {"name": "App.tsx", "target": "frontend/src/App.tsx", "id": "1wkwMjFm3pClmkgrthHCD7IiUNmMmNe-K", "bytes": 18974},
+      {"name": "workbench.test.tsx", "target": "frontend/src/__tests__/workbench.test.tsx", "id": "1f2hse9H7IOucGs_dvrvjTAvhx_da2Tmd", "bytes": 2410},
+      {"name": "buggy_implementations.json", "target": "evaluation/corpora/buggy_implementations.json", "id": "1HLmM9RtDsvZnIYWySNd4ZWrpTmT8DnIg", "bytes": 6523},
+      {"name": "correct_alternatives.json", "target": "evaluation/corpora/correct_alternatives.json", "id": "1H6L3ECU0RCRFiqbGBQGrbjzYqd5KMLXV", "bytes": 3280},
+      {"name": "run_code_eval.py", "target": "evaluation/run_code_eval.py", "id": "1SkklwSq7TD_xizg0ry7EP2_TfztovkwA", "bytes": 5898},
+      {"name": "audio_manifest.json", "target": "evaluation/speech_ablation/audio_manifest.json", "id": "1IEUWKPrhvptkjaVkriXzB2x3jjFi-6lo", "bytes": 2383},
+      {"name": "run_speech_ablation.py", "target": "evaluation/speech_ablation/run_speech_ablation.py", "id": "1KdGxsL--76ZqfN93XCqfu3hvXK2NgK-i", "bytes": 4562},
+      {"name": "docker-compose.yml", "target": "docker-compose.yml", "id": "1qodh31IaoIMbXv_Pmocf6ZLzC9eR9pDS", "bytes": 1493},
+      {"name": "Dockerfile.coordinator", "target": "backend/Dockerfile.coordinator", "id": "1TCT2AYoEU9ZS88ErGkSZuzyAcpa71Syk", "bytes": 722},
+      {"name": "prewarm_tts_cache.py", "target": "scripts/prewarm_tts_cache.py", "id": "1_LznW6EiAt63oN5XnwVnIGvJH866WySe", "bytes": 2996},
+      {"name": "run_all_checks.py", "target": "scripts/run_all_checks.py", "id": "1eQgwTMkpyJOXmc83r1dhCYpVgoLNxrop", "bytes": 4028}
+    ]
+  }
+}
