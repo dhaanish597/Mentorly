@@ -1,0 +1,176 @@
+{
+  "scenario_id": "SD-CORE-05",
+  "scenario_version": "1.0.0",
+  "title": "Search autocomplete",
+  "learning_mode": "guided_system_design",
+  "difficulty": "intermediate",
+  "estimated_minutes": 30,
+  "linked_exercise_ids": [
+    "ex21_common_prefix"
+  ],
+  "prerequisites": [
+    "Prefix lookup",
+    "Index freshness",
+    "Privacy"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Offer type-ahead results for a changing catalog. Clarify ranking, freshness, request cancellation and whether personalized data may enter a shared cache.",
+  "clarification_facts": {
+    "query_rps": 10000,
+    "catalog_items": 1000000,
+    "max_index_lag_seconds": 5,
+    "result_limit": 10
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Prefix representation",
+      "description": "Choose an index mechanism that supports bounded prefix results.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "prefix_index",
+          "values": [
+            "trie",
+            "sorted_prefix_range",
+            "search_index"
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Capacity and cancellation",
+      "description": "Bound query rate per index replica; stale client responses must not replace newer input.",
+      "checks": [
+        {
+          "op": "query_capacity"
+        },
+        {
+          "op": "property",
+          "key": "query_epoch_fencing",
+          "values": [
+            true
+          ]
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Fresh updates",
+      "description": "State the indexing delay and compare it with the five-second freshness bound.",
+      "checks": [
+        {
+          "op": "number",
+          "key": "index_lag_seconds",
+          "minimum": 0,
+          "maximum": 5
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Failure and privacy",
+      "description": "A replica fails and some results are user-specific. Keep an explicit cache scope and fallback policy.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "cache_scope",
+          "values": [
+            "public_only",
+            "per_user",
+            "authorization_on_read"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "search_failure_policy",
+          "values": [
+            "last_good_bounded",
+            "replica_failover",
+            "explicit_unavailable"
+          ]
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Immutable trie snapshots",
+      "description": "Periodically build a bounded trie and publish it atomically within the freshness budget."
+    },
+    {
+      "name": "Incremental search index",
+      "description": "Apply updates to a prefix-capable index and expose measured replication/refresh delay."
+    }
+  ],
+  "common_misconceptions": [
+    "A prefix match alone does not define ranking.",
+    "An old network response can overwrite a newer query.",
+    "A shared cache can expose personalized suggestions."
+  ],
+  "hint_ladder": {
+    "level_1": "Decide how results for the prefix are ordered and capped.",
+    "level_2": "Compare immutable trie publication with an incrementally updated index.",
+    "level_3": "At 10k queries/sec, declared per-replica capacity times available replicas must leave headroom. Track a query epoch to discard stale responses and scope cached suggestions by their authorization boundary."
+  },
+  "consolidation": "Autocomplete joins prefix retrieval, ranking, freshness, cancellation and privacy. The linked common-prefix exercise introduces prefix reasoning rather than a complete search engine.",
+  "fresh_transfer_question": "How would a two-second catalog-update requirement change a design that currently rebuilds every minute?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "number",
+      "key": "index_lag_seconds",
+      "minimum": 0,
+      "maximum": 2
+    }
+  ]
+}

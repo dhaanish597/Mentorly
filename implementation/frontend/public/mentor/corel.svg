@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 672" width="100%" height="100%" fill="none">
+  <defs>
+    <filter id="corel-sketch-filter" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" />
+    </filter>
+  </defs>
+
+  <g filter="url(#corel-sketch-filter)" stroke="#24152f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Corel (CS Fundamentals Teacher) - Approachable, smart, short hair, expressive hand -->
+
+    <!-- Shoulders & Torso -->
+    <path d="M235 660 C 235 535, 285 485, 345 465 L 455 465 C 515 485, 565 535, 565 660" fill="#fffdf9" stroke-width="4.5"/>
+    <!-- Casual Open Collar -->
+    <path d="M365 465 L 390 530 L 400 490 L 410 530 L 435 465" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M400 530 L 400 660" stroke-width="2.5" stroke-dasharray="6 6"/>
+
+    <!-- Neck -->
+    <path d="M365 390 L 365 470 C 385 485, 415 485, 435 470 L 435 390" fill="#fffdf9" stroke-width="4"/>
+
+    <!-- Head & Friendly Rounded Jawline -->
+    <path d="M335 250 C 330 330, 355 400, 400 405 C 445 400, 470 330, 465 250" fill="#fffdf9" stroke-width="4.5"/>
+
+    <!-- Ears -->
+    <path d="M335 265 C 318 265, 316 305, 335 315" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M326 280 C 323 290, 327 300, 331 304" fill="none" stroke-width="2"/>
+    <path d="M465 265 C 482 265, 484 305, 465 315" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M474 280 C 477 290, 473 300, 469 304" fill="none" stroke-width="2"/>
+
+    <!-- Expressive, Warm Eyes -->
+    <path d="M362 274 C 370 268, 384 268, 392 274" fill="none" stroke-width="3.5"/>
+    <circle cx="377" cy="279" r="4.8" fill="#24152f"/>
+    <circle cx="379" cy="277" r="1.5" fill="#ffffff"/>
+
+    <path d="M408 274 C 416 268, 430 268, 438 274" fill="none" stroke-width="3.5"/>
+    <circle cx="423" cy="279" r="4.8" fill="#24152f"/>
+    <circle cx="425" cy="277" r="1.5" fill="#ffffff"/>
+
+    <!-- Eyebrows (Warm, curious, slightly arched) -->
+    <path d="M356 252 C 368 244, 388 248, 395 256" fill="none" stroke-width="3"/>
+    <path d="M405 256 C 412 248, 432 244, 444 252" fill="none" stroke-width="3"/>
+
+    <!-- Nose -->
+    <path d="M400 275 L 396 312 C 400 318, 408 316, 412 312" fill="none" stroke-width="3"/>
+
+    <!-- Kind, Engaging Smile -->
+    <path d="M374 344 C 390 366, 410 366, 426 344" fill="none" stroke-width="3.5"/>
+    <path d="M370 342 C 372 346, 375 348, 372 352" stroke-width="2"/>
+    <path d="M430 342 C 428 346, 425 348, 428 352" stroke-width="2"/>
+
+    <!-- Short, Tousled Cropped Hair -->
+    <path d="M330 250 C 320 180, 345 130, 400 128 C 455 130, 480 180, 470 250 C 485 220, 480 160, 450 135 C 420 110, 370 115, 335 155 C 315 185, 320 220, 330 250 Z" fill="#24152f"/>
+    <!-- Subtle hair texture lines -->
+    <path d="M350 145 C 370 130, 410 130, 435 145" fill="none" stroke="#24152f" stroke-width="3"/>
+    <path d="M340 180 C 360 160, 420 160, 450 185" fill="none" stroke="#24152f" stroke-width="3"/>
+    <path d="M370 120 C 375 110, 385 110, 390 120" stroke="#24152f" stroke-width="2.5"/>
+
+    <!-- Open Hand Gesture (Explaining fundamental concept) -->
+    <path d="M250 630 C 270 540, 290 490, 320 460" fill="none" stroke-width="4"/>
+    <path d="M315 460 C 310 445, 325 435, 335 440 C 345 430, 355 435, 355 450 C 350 465, 335 475, 315 460 Z" fill="#fffdf9" stroke-width="3.5"/>
+    <!-- Tiny microchip icon resting on hand -->
+    <rect x="330" y="415" width="22" height="22" rx="3" fill="#fffdf9" stroke-width="2.5"/>
+    <path d="M325 422 L 330 422 M 325 428 L 330 428 M 352 422 L 357 422 M 352 428 L 357 428" stroke-width="2"/>
+    <path d="M336 410 L 336 415 M 344 410 L 344 415 M 336 437 L 336 442 M 344 437 L 344 442" stroke-width="2"/>
+
+    <!-- CS Fundamentals Doodle Accents (Memory stack & Binary) -->
+    <!-- Memory Stack Layers -->
+    <rect x="500" y="200" width="36" height="14" rx="2" fill="#fffdf9" stroke-width="2"/>
+    <text x="505" y="211" font-family="monospace" font-size="8" fill="#24152f" stroke="none">STACK</text>
+    <rect x="500" y="218" width="36" height="14" rx="2" fill="#fffdf9" stroke-width="2"/>
+    <text x="507" y="229" font-family="monospace" font-size="8" fill="#24152f" stroke="none">HEAP</text>
+    <rect x="500" y="236" width="36" height="14" rx="2" fill="#fffdf9" stroke-width="2"/>
+    <text x="508" y="247" font-family="monospace" font-size="8" fill="#24152f" stroke="none">TEXT</text>
+
+    <!-- Binary streaming bits -->
+    <text x="250" y="210" font-family="monospace" font-size="14" fill="#24152f" stroke="none" opacity="0.8">0101</text>
+    <text x="260" y="230" font-family="monospace" font-size="12" fill="#24152f" stroke="none" opacity="0.6">1010</text>
+  </g>
+</svg>

@@ -1,0 +1,178 @@
+{
+  "scenario_id": "SD-BR-04",
+  "scenario_version": "1.0.0",
+  "title": "Distributed leaderboard",
+  "learning_mode": "dsa_to_system_bridge",
+  "difficulty": "intermediate",
+  "estimated_minutes": 20,
+  "linked_exercise_ids": [
+    "ex10_second_largest_distinct"
+  ],
+  "prerequisites": [
+    "Ranking and duplicate semantics",
+    "Heaps and partitioned top-k introduced here"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Maintain a top-k leaderboard while scores arrive from many writers. Clarify tie handling, freshness and read-your-write expectations.",
+  "clarification_facts": {
+    "users": 1000000,
+    "bytes_per_entry": 64,
+    "replicas": 2,
+    "update_rps": 20000,
+    "max_staleness_seconds": 2
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Ranking authority",
+      "description": "Name the state that determines ordering and define tie behavior.",
+      "checks": [
+        {
+          "op": "node_kind",
+          "kinds": [
+            "relational_db",
+            "kv_cache",
+            "search_index"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "tie_policy",
+          "values": [
+            "stable_user_id",
+            "shared_rank",
+            "timestamp_then_id"
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "State budget",
+      "description": "Estimate storage with replication against a declared storage budget.",
+      "checks": [
+        {
+          "op": "storage_capacity"
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Concurrent updates",
+      "description": "Updates can arrive twice or out of order. Declare an update/version policy.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "score_update_policy",
+          "values": [
+            "monotonic_max",
+            "versioned_replace",
+            "deduplicated_delta"
+          ]
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Partitioned top-k",
+      "description": "Explain global merge and the permitted lag when a ranking shard is unavailable.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "ranking_merge",
+          "values": [
+            "global_sorted_set",
+            "shard_topk_merge",
+            "materialized_rank"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "staleness_seconds",
+          "minimum": 0,
+          "maximum": 2
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Central sorted ranking index",
+      "description": "A sorted state service offers global order within its measured capacity boundary."
+    },
+    {
+      "name": "Shard-local top-k plus merge",
+      "description": "Maintain bounded candidates per shard, merge globally, and state freshness/failure limits."
+    }
+  ],
+  "common_misconceptions": [
+    "Top-k results require a stated tie policy.",
+    "Summing duplicate deltas can inflate scores.",
+    "Shard-local winners do not establish freshness of a global view."
+  ],
+  "hint_ladder": {
+    "level_1": "Decide whether equal scores share a rank or require a stable tiebreaker.",
+    "level_2": "Compare one sorted authority with shard-local candidate sets and a merge step.",
+    "level_3": "For 1M entries at 64 bytes with two copies, the raw state estimate is 128MB before index/allocator overhead. Version or deduplicate updates before deriving a global ranking."
+  },
+  "consolidation": "Ranking requires update semantics, stable tie handling and a freshness contract; raw payload bytes exclude engine overhead and operational headroom.",
+  "fresh_transfer_question": "What changes when a contest closes and the final ranking must become immutable and auditable?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "property",
+      "key": "auditable_frozen_ranking",
+      "values": [
+        true
+      ]
+    }
+  ]
+}

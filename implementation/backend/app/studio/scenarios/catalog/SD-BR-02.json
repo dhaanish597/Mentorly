@@ -1,0 +1,185 @@
+{
+  "scenario_id": "SD-BR-02",
+  "scenario_version": "1.0.0",
+  "title": "Multi-tier cache and stampede protection",
+  "learning_mode": "dsa_to_system_bridge",
+  "difficulty": "intermediate",
+  "estimated_minutes": 20,
+  "linked_exercise_ids": [
+    "ex19_first_unique_char"
+  ],
+  "prerequisites": [
+    "Hash-map lookup",
+    "Expiry and eviction introduced in this scenario"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Design a read-through experience for an expensive database lookup. Explain how many requests reach the origin when a popular cached key expires.",
+  "clarification_facts": {
+    "read_rps": 25000,
+    "write_rps": 500,
+    "db_query_ms": 200,
+    "concurrent_hot_misses": 10000,
+    "staleness_budget_seconds": 5
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Dictionary cache",
+      "description": "Identify cached state and the authoritative data source.",
+      "checks": [
+        {
+          "op": "node_kind",
+          "kinds": [
+            "kv_cache",
+            "cdn"
+          ]
+        },
+        {
+          "op": "node_kind",
+          "kinds": [
+            "relational_db",
+            "object_storage"
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Origin budget",
+      "description": "Compute origin reads from declared miss fraction and compare with the origin read budget.",
+      "checks": [
+        {
+          "op": "origin_capacity"
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Hot-key expiry",
+      "description": "Ten thousand simultaneous misses must not cause ten thousand expensive origin refreshes.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "stampede_policy",
+          "values": [
+            "singleflight",
+            "lease",
+            "stale_while_revalidate"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "origin_refreshes_per_hot_key",
+          "minimum": 0,
+          "maximum": 1
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Write race",
+      "description": "A refresh races with a write and invalidation. Declare a version/lease/ordering mechanism and a staleness bound.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "cache_write_policy",
+          "values": [
+            "versioned_write",
+            "lease_token",
+            "ordered_invalidation",
+            "write_through"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "staleness_seconds",
+          "minimum": 0,
+          "maximum": 5
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Look-aside cache with singleflight",
+      "description": "Application tier coalesces misses and uses an explicit invalidation/version policy."
+    },
+    {
+      "name": "Write-through with leases",
+      "description": "Writes and refreshes use versioned leases to prevent stale overwrite."
+    },
+    {
+      "name": "Edge cache with origin shield",
+      "description": "Stale-while-revalidate and a shared shield bound fan-in while honoring a declared staleness window."
+    }
+  ],
+  "common_misconceptions": [
+    "A cache is not a source of truth merely because it is fast.",
+    "Expiry synchronizes demand unless refreshes are coalesced.",
+    "Delete-after-write alone does not prevent every stale refresh race."
+  ],
+  "hint_ladder": {
+    "level_1": "Count the origin requests when all callers miss the same key.",
+    "level_2": "Compare waiting behind one refresh with serving a bounded stale value.",
+    "level_3": "If 10000 callers share one refresh, origin fan-in is one for that key; it is not a 10000x load spike. A lease/version check prevents an older refresh from overwriting a newer value."
+  },
+  "consolidation": "Cache design includes miss behavior, coalescing, write ordering and the permitted staleness window. The linked DSA exercise teaches dictionary reasoning, not an implemented LRU cache.",
+  "fresh_transfer_question": "What changes if the cached value is an account balance that must be immediately fresh after a write?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "number",
+      "key": "staleness_seconds",
+      "minimum": 0,
+      "maximum": 0
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "scenario_id": "SD-CORE-02",
+  "scenario_version": "1.0.0",
+  "title": "Reliable webhook delivery",
+  "learning_mode": "guided_system_design",
+  "difficulty": "intermediate",
+  "estimated_minutes": 30,
+  "linked_exercise_ids": [],
+  "prerequisites": [
+    "At-least-once delivery",
+    "Durable retry state",
+    "Fair scheduling"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Deliver outbound webhooks for 500 tenants at 1200 events per second, with retries retained for seven days and observable per-delivery state.",
+  "clarification_facts": {
+    "events_per_second": 1200,
+    "tenants": 500,
+    "retry_window_seconds": 604800,
+    "slow_tenant_seconds": 29,
+    "replay_window_seconds": 21600
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Durable acknowledgement",
+      "description": "Acknowledge an event only after its pending delivery state is durable.",
+      "checks": [
+        {
+          "op": "any_of",
+          "groups": [
+            [
+              {
+                "op": "node_kind",
+                "kinds": [
+                  "message_queue"
+                ]
+              },
+              {
+                "op": "property",
+                "key": "durable_pending",
+                "values": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "op": "node_kind",
+                "kinds": [
+                  "relational_db"
+                ]
+              },
+              {
+                "op": "property",
+                "key": "outbox",
+                "values": [
+                  true
+                ]
+              }
+            ]
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Noisy neighbor",
+      "description": "One tenant waits 29 seconds per call; bound tenant concurrency or schedule fairly.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "fairness_policy",
+          "values": [
+            "per_tenant_limit",
+            "weighted_fair_queue",
+            "partitioned_lanes"
+          ]
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Pause and replay",
+      "description": "A tenant pauses delivery then replays six hours. Keep stable delivery identities and a replay log.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "idempotent_effects",
+          "values": [
+            true
+          ]
+        },
+        {
+          "op": "property",
+          "key": "replay_log",
+          "values": [
+            true
+          ]
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Retention and failover",
+      "description": "Estimate the retained retry payload and explicitly bound acknowledged-event loss on failover.",
+      "checks": [
+        {
+          "op": "retry_capacity"
+        },
+        {
+          "op": "number",
+          "key": "rpo_seconds",
+          "minimum": 0,
+          "maximum": null
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Partitioned broker with delivery log",
+      "description": "Queue lanes and durable delivery records isolate retries and tenants."
+    },
+    {
+      "name": "Tenant-sharded SQL outbox",
+      "description": "SQLite WAL/NVMe or SQL SKIP LOCKED can be defensible within declared capacity and durability limits; no Kafka brand requirement."
+    }
+  ],
+  "common_misconceptions": [
+    "At-least-once retry can duplicate deliveries.",
+    "A single FIFO worker pool lets slow tenants monopolize capacity.",
+    "Async replication does not imply zero acknowledged-event loss."
+  ],
+  "hint_ladder": {
+    "level_1": "Trace a fast tenant arriving behind a slow endpoint.",
+    "level_2": "Compare partitioned broker lanes with fair polling of SQL outbox rows.",
+    "level_3": "At 1200 events/sec over seven days there are 725760000 event slots before retention reduction. Multiply by declared bytes per event and replication; then explain duplicate identity and the allowed failover RPO."
+  },
+  "consolidation": "Webhook design separates acceptance durability, scheduling fairness, effect identity, replay and retention. SQLite-per-tenant is a valid candidate, while its actual throughput and recovery must be evidenced rather than asserted.",
+  "fresh_transfer_question": "What if a tenant requires strict per-object ordering but permits parallel delivery across different objects?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "property",
+      "key": "ordering_policy",
+      "values": [
+        "per_object_sequence",
+        "partitioned_object_log"
+      ]
+    }
+  ]
+}

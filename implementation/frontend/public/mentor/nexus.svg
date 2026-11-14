@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 672" width="100%" height="100%" fill="none">
+  <defs>
+    <filter id="nexus-sketch-filter" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" />
+    </filter>
+  </defs>
+
+  <g filter="url(#nexus-sketch-filter)" stroke="#24152f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Nexus (System Design Teacher) - Professional, thoughtful, side-parted hair, turtleneck -->
+
+    <!-- Shoulders & Torso (Structured blazer/turtleneck) -->
+    <path d="M230 660 C 230 530, 280 480, 340 460 L 460 460 C 520 480, 570 530, 570 660" fill="#fffdf9" stroke-width="4.5"/>
+    <!-- Turtleneck neckband -->
+    <path d="M360 410 C 360 400, 440 400, 440 410 L 445 470 C 445 485, 355 485, 355 470 Z" fill="#24152f" stroke-width="3.5"/>
+    <path d="M362 435 C 380 442, 420 442, 438 435" stroke="#ffffff" stroke-width="2"/>
+    <path d="M365 455 C 385 462, 415 462, 435 455" stroke="#ffffff" stroke-width="2"/>
+
+    <!-- Head & Chiseled Jawline -->
+    <path d="M335 250 C 330 330, 360 395, 400 400 C 440 395, 470 330, 465 250" fill="#fffdf9" stroke-width="4.5"/>
+
+    <!-- Ears -->
+    <path d="M335 265 C 318 265, 315 305, 335 315" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M325 280 C 322 290, 326 300, 330 304" fill="none" stroke-width="2"/>
+    <path d="M465 265 C 482 265, 485 305, 465 315" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M475 280 C 478 290, 474 300, 470 304" fill="none" stroke-width="2"/>
+
+    <!-- Thoughtful Eyes with Wireframe Glasses -->
+    <!-- Left Glass -->
+    <rect x="350" y="260" width="42" height="34" rx="8" fill="#fffdf9" stroke-width="3"/>
+    <circle cx="372" cy="277" r="4.5" fill="#24152f"/>
+    <circle cx="374" cy="275" r="1.5" fill="#ffffff"/>
+
+    <!-- Right Glass -->
+    <rect x="408" y="260" width="42" height="34" rx="8" fill="#fffdf9" stroke-width="3"/>
+    <circle cx="428" cy="277" r="4.5" fill="#24152f"/>
+    <circle cx="430" cy="275" r="1.5" fill="#ffffff"/>
+
+    <!-- Glasses Bridge & Temples -->
+    <path d="M392 272 C 398 268, 402 268, 408 272" fill="none" stroke-width="3"/>
+    <path d="M350 270 L 333 268" stroke-width="2.5"/>
+    <path d="M450 270 L 467 268" stroke-width="2.5"/>
+
+    <!-- Eyebrows (Focused, analytical) -->
+    <path d="M348 248 C 360 244, 385 246, 394 252" fill="none" stroke-width="3.5"/>
+    <path d="M406 252 C 415 246, 440 244, 452 248" fill="none" stroke-width="3.5"/>
+
+    <!-- Nose (Structured bridge) -->
+    <path d="M400 270 L 398 312 L 410 312" fill="none" stroke-width="3"/>
+
+    <!-- Calm, Confident Mouth -->
+    <path d="M380 345 C 392 350, 408 350, 420 345" fill="none" stroke-width="3"/>
+    <path d="M394 358 C 400 360, 406 360, 410 358" stroke-width="2"/>
+
+    <!-- Sleek Side-Parted Haircut -->
+    <path d="M330 250 C 320 180, 345 130, 400 125 C 460 125, 480 170, 470 250 C 475 220, 475 160, 440 140 C 410 120, 360 130, 330 180 Z" fill="#24152f"/>
+    <path d="M335 210 C 360 165, 420 155, 460 175" fill="none" stroke="#24152f" stroke-width="4"/>
+    <path d="M335 240 C 350 215, 390 195, 440 205" fill="none" stroke="#24152f" stroke-width="3"/>
+
+    <!-- Hand with Stylus / Architecture Pointer -->
+    <path d="M540 640 C 530 550, 500 500, 470 470" fill="none" stroke-width="4"/>
+    <path d="M465 470 C 455 455, 470 440, 485 450 C 495 440, 505 450, 500 465 C 495 475, 480 485, 465 470 Z" fill="#fffdf9" stroke-width="3.5"/>
+    <!-- Stylus / Pointer pointing up-right -->
+    <path d="M480 465 L 530 395 L 536 399 L 486 469 Z" fill="#fffdf9" stroke-width="3"/>
+
+    <!-- System Architecture Doodle Accents (Nodes & Flow) -->
+    <!-- Client Node -->
+    <rect x="250" y="210" width="34" height="24" rx="4" fill="#fffdf9" stroke-width="2"/>
+    <text x="256" y="226" font-family="monospace" font-size="9" fill="#24152f" stroke="none">API</text>
+    <!-- Arrow -->
+    <path d="M284 222 L 305 222" stroke-width="2" stroke-dasharray="3 3"/>
+    <!-- Server Node -->
+    <rect x="500" y="210" width="34" height="24" rx="4" fill="#fffdf9" stroke-width="2"/>
+    <text x="507" y="226" font-family="monospace" font-size="9" fill="#24152f" stroke="none">DB</text>
+    <!-- Cloud shape accent -->
+    <path d="M480 120 C 490 110, 520 110, 530 120 C 540 120, 550 135, 540 145 C 535 150, 485 150, 480 140 Z" fill="none" stroke-width="2" stroke-dasharray="4 3"/>
+  </g>
+</svg>

@@ -1,0 +1,214 @@
+{
+  "scenario_id": "SD-BR-01",
+  "scenario_version": "1.0.0",
+  "title": "Distributed API rate limiter",
+  "learning_mode": "dsa_to_system_bridge",
+  "difficulty": "intermediate",
+  "estimated_minutes": 20,
+  "linked_exercise_ids": [
+    "ex1_shortest_subarray"
+  ],
+  "prerequisites": [
+    "Bounded counters",
+    "Sliding-window reasoning"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Protect a login API with a per-key request budget while keeping admission decisions fast. Clarify accuracy, burst allowance and behavior during counter-store failure.",
+  "clarification_facts": {
+    "quota": "100 requests per minute per key",
+    "initial_gateways": 1,
+    "peak_rps": 5000,
+    "p99_budget_ms": 8,
+    "failure_spike_rps": 50000,
+    "acceptable_overrun": "Must be explicitly negotiated; not silently assumed zero"
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "One admission point",
+      "description": "One gateway enforces a per-key budget; a path must exist from client to admission service.",
+      "checks": [
+        {
+          "op": "node_kind",
+          "kinds": [
+            "api_gateway",
+            "stateless_service"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "quota_coordination",
+          "values": [
+            "atomic_shared",
+            "sticky_local",
+            "hierarchical_lease"
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Four gateways",
+      "description": "At 5000 RPS with four gateways, explain which authority owns each key and whether the quota is exact or approximate.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "quota_coordination",
+          "values": [
+            "atomic_shared",
+            "sticky_local",
+            "hierarchical_lease"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "quota_overrun_bound",
+          "minimum": 0,
+          "maximum": null
+        },
+        {
+          "op": "number",
+          "key": "admission_p99_ms",
+          "minimum": 0,
+          "maximum": 8
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Counter-store outage",
+      "description": "A 50000 RPS credential-stuffing burst coincides with a twelve-second counter-store outage. Declare the fail-open/closed/lease policy.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "outage_policy",
+          "values": [
+            "fail_closed",
+            "bounded_local_fallback",
+            "unexpired_lease"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "origin_capacity_rps",
+          "minimum": 1,
+          "maximum": null
+        },
+        {
+          "op": "number",
+          "key": "origin_forwarded_rps",
+          "minimum": 0,
+          "maximum": null
+        },
+        {
+          "op": "forwarded_capacity"
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Regional partition",
+      "description": "Active regions cannot coordinate for ten seconds. State and bound the quota/availability tradeoff.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "regional_quota_policy",
+          "values": [
+            "regional_lease",
+            "single_authority",
+            "bounded_overrun"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "quota_overrun_bound",
+          "minimum": 0,
+          "maximum": null
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Shared atomic counter",
+      "description": "Gateways use an atomic shared authority and an explicit outage policy."
+    },
+    {
+      "name": "Sticky local counters",
+      "description": "Route a key consistently, quantify approximation and rebalance/failover behavior."
+    },
+    {
+      "name": "Hierarchical leases",
+      "description": "A regional authority leases finite token blocks; edges must not spend expired leases."
+    }
+  ],
+  "common_misconceptions": [
+    "Four independent 100/min dictionaries can admit 400/min.",
+    "A network call being fast in an example is not a measured p99 bound.",
+    "Fail-open during credential stuffing needs a bounded origin-protection policy."
+  ],
+  "hint_ladder": {
+    "level_1": "Trace four requests for one key through different gateways.",
+    "level_2": "Compare a shared atomic authority with key-sticky local ownership and state the coordination cost.",
+    "level_3": "Four independent 100/min counters allow 400 requests. An atomic authority preserves a global count; finite token leases trade communication for bounded outstanding quota. State what happens when the authority is unavailable."
+  },
+  "consolidation": "An admission design must name a quota authority, its consistency boundary and its outage policy. A structural declaration is evidence of the proposal, not measured latency or proof that an implementation is atomic.",
+  "fresh_transfer_question": "How would your policy change for paid API usage where a small overrun is costly but requests may be retried?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "number",
+      "key": "quota_overrun_bound",
+      "minimum": 0,
+      "maximum": 0
+    }
+  ]
+}

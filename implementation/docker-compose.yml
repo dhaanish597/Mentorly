@@ -1,0 +1,121 @@
+# Dedicated Linux Docker-host packaging; local loopback only, not a public deployment.
+# runsc and its sidecars must be installed/verified on that host. See docs/DEPLOYMENT.md.
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: deployment/frontend/Dockerfile
+    ports:
+      - "127.0.0.1:${VCC_FRONTEND_PORT:-8080}:8080"
+    depends_on:
+      - coordinator
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 128
+    restart: unless-stopped
+
+  coordinator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.coordinator
+    expose:
+      - "8000"
+    environment:
+      VCC_ENV: production
+      VCC_DATABASE_PATH: /data/vcc.db
+      VCC_TTS_CACHE_DIR: /data/tts_cache
+      VCC_CORS_ORIGINS: ${VCC_CORS_ORIGINS:-http://localhost:8080}
+      VCC_EXEC_WORKER_URL: http://exec-worker:8001
+      VCC_INTERNAL_WORKER_SECRET: ${VCC_INTERNAL_WORKER_SECRET:?Set a random internal worker secret}
+      VCC_GNANI_API_KEY: ${VCC_GNANI_API_KEY:-}
+      VCC_GNANI_BASE_URL: ${VCC_GNANI_BASE_URL:-https://api.vachana.ai}
+      VCC_GNANI_STT_MODEL: ${VCC_GNANI_STT_MODEL:-prisma-v3.0}
+      VCC_GNANI_TTS_MODEL: ${VCC_GNANI_TTS_MODEL:-timbre-v3.0}
+      VCC_GNANI_TTS_VOICE: ${VCC_GNANI_TTS_VOICE:-Avinash}
+      VCC_GNANI_STT_TRANSPORT: ${VCC_GNANI_STT_TRANSPORT:-rest}
+      VCC_GNANI_MAX_CONCURRENCY: 1
+      VCC_MAX_STT_SECONDS_PER_SESSION: ${VCC_MAX_STT_SECONDS_PER_SESSION:-180}
+      VCC_MAX_TTS_CHARS_PER_SESSION: ${VCC_MAX_TTS_CHARS_PER_SESSION:-4000}
+      VCC_GLOBAL_DAILY_CALL_LIMIT: ${VCC_GLOBAL_DAILY_CALL_LIMIT:-800}
+      VCC_LLM_PROVIDER: ${VCC_LLM_PROVIDER:-groq}
+      VCC_GROQ_API_KEY: ${VCC_GROQ_API_KEY:-}
+      VCC_LLM_MODEL: ${VCC_LLM_MODEL:-}
+      VCC_LLM_TIMEOUT_MS: ${VCC_LLM_TIMEOUT_MS:-1200}
+      VCC_ALLOW_PUBLIC_CUSTOM_CODE: ${VCC_ALLOW_PUBLIC_CUSTOM_CODE:-false}
+      VCC_ISOLATION_ACCEPTANCE_FILE: /etc/vcc/acceptance/accepted.json
+    volumes:
+      - vcc_data:/data
+      - type: bind
+        source: ${VCC_ACCEPTANCE_HOST_DIR:-/var/lib/vcc/acceptance}
+        target: /etc/vcc/acceptance
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      - exec-worker
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 256
+    restart: unless-stopped
+
+  exec-worker:
+    build:
+      context: .
+      dockerfile: exec_worker/Dockerfile.worker
+    expose:
+      - "8001"
+    environment:
+      VCC_ENV: production
+      VCC_INTERNAL_WORKER_SECRET: ${VCC_INTERNAL_WORKER_SECRET:?Set a random internal worker secret}
+      VCC_RUNNER_IMAGE: ${VCC_RUNNER_IMAGE:-vcc-runner:phase1}
+      VCC_WORKER_MAX_CONCURRENCY: ${VCC_WORKER_MAX_CONCURRENCY:-4}
+      VCC_IPC_PARENT_DIR: ${VCC_IPC_PARENT_DIR:-/var/lib/vcc/ipc}
+      VCC_ALLOW_PUBLIC_CUSTOM_CODE: ${VCC_ALLOW_PUBLIC_CUSTOM_CODE:-false}
+      VCC_ISOLATION_ACCEPTANCE_FILE: /etc/vcc/acceptance/accepted.json
+    volumes:
+      # This socket is host-root-equivalent control-plane privilege, not a sandbox mount.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+      # The daemon sees HOST paths, so source, target and env must match exactly.
+      - type: bind
+        source: ${VCC_IPC_PARENT_DIR:-/var/lib/vcc/ipc}
+        target: ${VCC_IPC_PARENT_DIR:-/var/lib/vcc/ipc}
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/vcc/gvisor
+        target: /opt/vcc/gvisor
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${VCC_ACCEPTANCE_HOST_DIR:-/var/lib/vcc/acceptance}
+        target: /etc/vcc/acceptance
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 256
+    restart: unless-stopped
+
+volumes:
+  vcc_data:

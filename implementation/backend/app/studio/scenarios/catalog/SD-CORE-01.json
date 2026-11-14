@@ -1,0 +1,197 @@
+{
+  "scenario_id": "SD-CORE-01",
+  "scenario_version": "1.0.0",
+  "title": "Collaborative voice and code coordinator",
+  "learning_mode": "guided_system_design",
+  "difficulty": "intermediate",
+  "estimated_minutes": 30,
+  "linked_exercise_ids": [],
+  "prerequisites": [
+    "Request lifecycle",
+    "Idempotency",
+    "Isolation boundaries"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Design a coordinator that accepts voice/text turns, streams updates and sends untrusted Python to a separate isolated execution worker.",
+  "clarification_facts": {
+    "active_sessions": 1000,
+    "expanded_sessions": 20000,
+    "api_instances": 12,
+    "execution_p95_ms": 2000,
+    "retry_behavior": "Browser may retry after response loss"
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Separate trust boundaries",
+      "description": "Connect client, coordinator and execution worker without placing arbitrary code in the API process.",
+      "checks": [
+        {
+          "op": "node_kind",
+          "kinds": [
+            "stateless_service",
+            "api_gateway"
+          ]
+        },
+        {
+          "op": "node_kind",
+          "kinds": [
+            "worker_pool"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "execution_isolation",
+          "values": [
+            "gvisor",
+            "equivalent_reviewed_isolation"
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Lost response",
+      "description": "A browser retries a request whose execution may already have committed. Name a durable request identity and response replay boundary.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "durable_idempotency",
+          "values": [
+            true
+          ]
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Cancellation and streaming",
+      "description": "A learner edits code or interrupts speech while work is in flight. State revision fencing and cancellation semantics.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "epoch_fencing",
+          "values": [
+            true
+          ]
+        },
+        {
+          "op": "property",
+          "key": "stream_replay",
+          "values": [
+            true
+          ]
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Twelve app instances",
+      "description": "At 20000 active sessions across twelve app instances, state where cross-node events and mutation authority live.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "event_backplane",
+          "values": [
+            "durable_stream",
+            "pubsub_with_replay_store"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "cross_node_mutation",
+          "values": [
+            "database_cas",
+            "single_owner_partition"
+          ]
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Partition-owned coordinator",
+      "description": "Sticky session ownership plus durable state and a cross-node event backplane."
+    },
+    {
+      "name": "Stateless API with durable streams",
+      "description": "Database CAS and durable event streams coordinate independent API instances and worker queues."
+    }
+  ],
+  "common_misconceptions": [
+    "Retrying a POST is not exactly-once execution.",
+    "Cancelling a client promise does not prove a provider or worker stopped.",
+    "An in-memory lock in one API instance is not a global lock."
+  ],
+  "hint_ladder": {
+    "level_1": "Trace a response lost after the worker result commits.",
+    "level_2": "Compare partition ownership with a database CAS boundary.",
+    "level_3": "Record the request identity and durable result atomically. Fence late events by session epoch and artifact revision. A worker must still satisfy independently accepted isolation; the diagram does not prove gVisor is running."
+  },
+  "consolidation": "Keep execution isolation, mutation identity, state persistence and streaming replay distinct. A proposed topology cannot certify sandbox behavior or latency.",
+  "fresh_transfer_question": "How would you recover after an API instance dies while a sandbox job is finishing?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "property",
+      "key": "worker_reconciliation",
+      "values": [
+        true
+      ]
+    },
+    {
+      "op": "number",
+      "key": "rpo_seconds",
+      "minimum": 0,
+      "maximum": 0
+    }
+  ]
+}

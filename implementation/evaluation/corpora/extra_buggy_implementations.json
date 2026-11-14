@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Useful non-plan variants; excluded from the 12-fixture acceptance denominator.",
+  "fixtures": [
+    {
+      "fixture_id": "bug_ex1_03_if_instead_of_while_shrink",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v1_positive_only",
+      "bug_category": "incomplete_window_shrink",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    left = 0\n    curr_sum = 0\n    best = len(nums) + 1\n    for right, val in enumerate(nums):\n        curr_sum += val\n        if curr_sum >= target:\n            best = min(best, right - left + 1)\n            curr_sum -= nums[left]\n            left += 1\n    return 0 if best > len(nums) else best\n",
+      "code_hash": "66deb033530d4f27fff719f0a2428170b3f7d12560836013348b62a18694c02a",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "fixture_id": "bug_ex2_02_strict_less_than_bound",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "upper_bound_instead_of_lower_bound",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    ans = -1\n    while left <= right:\n        mid = (left + right) // 2\n        if nums[mid] > target:\n            ans = mid\n            right = mid - 1\n        else:\n            left = mid + 1\n    return ans\n",
+      "code_hash": "d39a9bfeb7acd4eaf8d002c43f04e8985489e0e87ed2c821789154fa724470d5",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "fixture_id": "bug_ex2_03_crashes_on_empty_array",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "empty_input_index_error",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    if nums[-1] < target:\n        return -1\n    for i, x in enumerate(nums):\n        if x >= target:\n            return i\n    return -1\n",
+      "code_hash": "6c1612468b417424a9f7ba623a0dad2d8234ccb0a9015cb821bdc1fad9b96d71",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "fixture_id": "bug_ex2_04_wrong_while_condition_left_lt_right",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "single_element_skipped",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    ans = -1\n    while left < right:\n        mid = (left + right) // 2\n        if nums[mid] >= target:\n            ans = mid\n            right = mid - 1\n        else:\n            left = mid + 1\n    return ans\n",
+      "code_hash": "e314f915d56bba7ca885e2630d5562c055384a78554c9b12ef59fe3950fa0c4d",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "fixture_id": "bug_ex3_04_ignores_standalone_x_after_zero",
+      "exercise_id": "ex3_max_product",
+      "spec_version": "v1_bounded_ints",
+      "bug_category": "zero_reset_failure",
+      "source_code": "def max_product_subarray(nums: list[int]) -> int:\n    hi = lo = ans = nums[0]\n    for x in nums[1:]:\n        hi, lo = max(hi * x, lo * x), min(hi * x, lo * x)\n        ans = max(ans, hi)\n    return ans\n",
+      "code_hash": "9fbe059d4590b9204d4518148266a7d36506f4d644cbcf90ac58bb8ae6d54908",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "fixture_id": "bug_ex2_01_returns_any_duplicate_not_first",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "early_return_on_duplicate",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if nums[mid] == target:\n            return mid\n        if nums[mid] > target:\n            right = mid - 1\n        else:\n            left = mid + 1\n    return -1\n",
+      "code_hash": "116aeb964bac3d208d0102339615565c67420e7acfb84c2a5b975c1610dedd73",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    }
+  ]
+}

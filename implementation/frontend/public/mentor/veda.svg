@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 672" width="100%" height="100%" fill="none">
+  <defs>
+    <filter id="sketch-filter" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" />
+    </filter>
+  </defs>
+
+  <g filter="url(#sketch-filter)" stroke="#24152f" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Veda (Aptitude & Logic Teacher) - Energetic, friendly, with wavy tied hair and pencil -->
+
+    <!-- Shoulders & Torso -->
+    <path d="M240 660 C 240 540, 290 490, 350 470 L 450 470 C 510 490, 560 540, 560 660" fill="#fffdf9" stroke-width="4.5"/>
+    <path d="M350 470 C 370 520, 430 520, 450 470" fill="none" stroke-width="3"/>
+    <!-- Collar & details -->
+    <path d="M375 490 L 400 560 L 425 490" fill="none" stroke-width="3"/>
+    <path d="M395 560 L 395 660" stroke-width="2.5" stroke-dasharray="8 6"/>
+
+    <!-- Neck -->
+    <path d="M365 390 L 365 480 C 385 495, 415 495, 435 480 L 435 390" fill="#fffdf9" stroke-width="4"/>
+    <path d="M375 430 C 390 445, 410 445, 425 430" fill="none" stroke-width="2"/>
+
+    <!-- Head & Chin (Soft jawline, friendly) -->
+    <path d="M335 250 C 330 330, 355 400, 400 405 C 445 400, 470 330, 465 250" fill="#fffdf9" stroke-width="4.5"/>
+
+    <!-- Ears -->
+    <path d="M335 270 C 320 270, 318 310, 335 320" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M327 285 C 324 295, 328 305, 332 308" fill="none" stroke-width="2"/>
+    <path d="M465 270 C 480 270, 482 310, 465 320" fill="#fffdf9" stroke-width="3.5"/>
+    <path d="M473 285 C 476 295, 472 305, 468 308" fill="none" stroke-width="2"/>
+
+    <!-- Eyes (Wide, energetic, smiling) -->
+    <path d="M360 275 C 368 268, 382 268, 390 275" fill="none" stroke-width="3.5"/>
+    <circle cx="375" cy="280" r="5" fill="#24152f"/>
+    <circle cx="377" cy="278" r="1.5" fill="#ffffff"/>
+
+    <path d="M410 275 C 418 268, 432 268, 440 275" fill="none" stroke-width="3.5"/>
+    <circle cx="425" cy="280" r="5" fill="#24152f"/>
+    <circle cx="427" cy="278" r="1.5" fill="#ffffff"/>
+
+    <!-- Eyebrows (Expressive, raised) -->
+    <path d="M355 255 C 365 248, 385 250, 392 258" fill="none" stroke-width="3"/>
+    <path d="M408 258 C 415 250, 435 248, 445 255" fill="none" stroke-width="3"/>
+
+    <!-- Nose -->
+    <path d="M400 280 L 396 315 C 400 320, 408 318, 412 314" fill="none" stroke-width="3"/>
+
+    <!-- Warm, Encouraging Smile -->
+    <path d="M375 342 C 390 365, 410 365, 425 342" fill="none" stroke-width="3.5"/>
+    <path d="M370 340 C 373 344, 375 348, 372 352" fill="none" stroke-width="2"/>
+    <path d="M430 340 C 427 344, 425 348, 428 352" fill="none" stroke-width="2"/>
+
+    <!-- Wavy Hair & Side-swept bun -->
+    <path d="M330 250 C 320 180, 350 140, 400 135 C 450 140, 480 180, 470 250 C 490 230, 495 180, 470 140 C 440 100, 360 100, 330 140 C 305 180, 310 230, 330 250 Z" fill="#24152f"/>
+    <!-- Top Hair Bun / Knot -->
+    <path d="M370 135 C 360 80, 440 80, 430 135 Z" fill="#24152f" stroke-width="3"/>
+    <!-- Strands of hair framing face -->
+    <path d="M330 230 C 340 260, 345 300, 340 330" fill="none" stroke="#24152f" stroke-width="3.5"/>
+    <path d="M470 230 C 460 260, 455 300, 460 330" fill="none" stroke="#24152f" stroke-width="3.5"/>
+
+    <!-- Hand holding a pencil (Aptitude & math thinking gesture) -->
+    <!-- Arm coming up -->
+    <path d="M260 620 C 275 520, 300 480, 330 450" fill="none" stroke-width="4"/>
+    <!-- Hand knuckles -->
+    <path d="M325 450 C 320 435, 335 420, 350 430 C 360 420, 370 430, 365 445 C 360 455, 345 465, 330 455 Z" fill="#fffdf9" stroke-width="3.5"/>
+    <!-- Pencil tilted upward -->
+    <path d="M335 460 L 370 375 L 378 378 L 343 463 Z" fill="#fffdf9" stroke-width="3"/>
+    <polygon points="370,375 378,378 374,365" fill="#24152f" stroke="#24152f" stroke-width="2"/>
+
+    <!-- Decorative Math / Logic Doodle floating accents -->
+    <!-- Lightbulb spark above -->
+    <path d="M470 120 L 485 105" stroke-width="2.5"/>
+    <path d="M495 130 L 515 130" stroke-width="2.5"/>
+    <path d="M485 150 L 505 160" stroke-width="2.5"/>
+    <!-- Floating sum / logic symbol -->
+    <text x="260" y="220" font-family="Georgia, serif" font-size="28" font-style="italic" fill="#24152f" stroke="none">∑</text>
+    <text x="510" y="240" font-family="Georgia, serif" font-size="26" font-style="italic" fill="#24152f" stroke="none">√x</text>
+  </g>
+</svg>

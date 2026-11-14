@@ -1,0 +1,202 @@
+{
+  "scenario_id": "SD-BR-03",
+  "scenario_version": "1.0.0",
+  "title": "Distributed work queue",
+  "learning_mode": "dsa_to_system_bridge",
+  "difficulty": "intermediate",
+  "estimated_minutes": 20,
+  "linked_exercise_ids": [
+    "ex6_running_totals"
+  ],
+  "prerequisites": [
+    "Lists and sequential processing",
+    "Acknowledgement and leases introduced here"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Move background email jobs out of the request path and keep pending work recoverable when workers crash.",
+  "clarification_facts": {
+    "arrival_rps": 1000,
+    "service_rate_per_worker": 125,
+    "workers": 12,
+    "burst_seconds": 60,
+    "delivery_semantics": "at least once"
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Durable pending work",
+      "description": "Separate job admission from side effects and state where unacknowledged work survives.",
+      "checks": [
+        {
+          "op": "any_of",
+          "groups": [
+            [
+              {
+                "op": "node_kind",
+                "kinds": [
+                  "message_queue"
+                ]
+              },
+              {
+                "op": "property",
+                "key": "durable_pending",
+                "values": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "op": "node_kind",
+                "kinds": [
+                  "relational_db"
+                ]
+              },
+              {
+                "op": "property",
+                "key": "outbox",
+                "values": [
+                  true
+                ]
+              }
+            ]
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Worker capacity",
+      "description": "Use a declared service-rate model; require utilization at or below 80 percent.",
+      "checks": [
+        {
+          "op": "queue_capacity"
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Crash after effect",
+      "description": "A worker sends email then dies before acknowledging. State duplicate prevention and lease/visibility recovery.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "idempotent_effects",
+          "values": [
+            true
+          ]
+        },
+        {
+          "op": "property",
+          "key": "lease_recovery",
+          "values": [
+            true
+          ]
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Poison jobs and fairness",
+      "description": "A failing tenant must not starve all other jobs; retries need a bound and inspectable terminal handling.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "retry_terminal_policy",
+          "values": [
+            "dead_letter",
+            "bounded_manual_review"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "fairness_policy",
+          "values": [
+            "per_tenant_limit",
+            "weighted_fair_queue",
+            "partitioned_lanes"
+          ]
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Durable broker and worker pool",
+      "description": "A broker retains unacknowledged jobs; idempotency bounds repeated effects."
+    },
+    {
+      "name": "Database outbox",
+      "description": "Transactional outbox rows plus bounded leased polling can avoid a separate broker at an explicitly modeled load."
+    }
+  ],
+  "common_misconceptions": [
+    "A Python list in a crashed API process is not durable pending work.",
+    "Acknowledgement is not atomic with an external email send.",
+    "More workers can overload a downstream provider without a concurrency limit."
+  ],
+  "hint_ladder": {
+    "level_1": "Find the point at which the API can acknowledge durable acceptance.",
+    "level_2": "Compare broker visibility timeouts with database job leases.",
+    "level_3": "A crash after sending but before acknowledgement can produce another delivery. Keep a durable job identity, make the effect idempotent where possible, and let an expired lease recover the job."
+  },
+  "consolidation": "Queue stability is a capacity claim under declared service rates, not measured throughput. Durable acceptance, lease recovery, idempotent effects and fairness are separate requirements.",
+  "fresh_transfer_question": "How would you preserve fairness if one customer uploads a million jobs while others submit ten each?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "number",
+      "key": "max_tenant_workers",
+      "minimum": 1,
+      "maximum": 2
+    }
+  ]
+}

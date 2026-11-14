@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0.0",
+  "description": "6 Correct Reference & Alternative Implementations across all 4 Canonical Specifications (Plan §14.1 / P8)",
+  "implementations": [
+    {
+      "impl_id": "ok_ex1_v1_sliding_window",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v1_positive_only",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    left = 0\n    curr_sum = 0\n    best = len(nums) + 1\n    for right, val in enumerate(nums):\n        curr_sum += val\n        while curr_sum >= target:\n            best = min(best, right - left + 1)\n            curr_sum -= nums[left]\n            left += 1\n    return 0 if best > len(nums) else best\n",
+      "code_hash": "47c28788b8c9b59d9ce1a52c894ca6bf172cc4429f4da5108f1c22fd1a74551b",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "impl_id": "ok_ex1_v2_monotonic_prefix_deque",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v2_negatives_allowed",
+      "source_code": "from collections import deque\n\ndef shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    n = len(nums)\n    prefix = [0] * (n + 1)\n    for i, x in enumerate(nums):\n        prefix[i + 1] = prefix[i] + x\n    best = n + 1\n    q = deque()\n    for i, p_val in enumerate(prefix):\n        while q and p_val - prefix[q[0]] >= target:\n            best = min(best, i - q.popleft())\n        while q and prefix[q[-1]] >= p_val:\n            q.pop()\n        q.append(i)\n    return 0 if best > n else best\n",
+      "code_hash": "94b0379ff785a7ac66732ba6d056e41d7a9e1faa51dd2594c3e04d0d66a0a3a9",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "impl_id": "ok_ex1_v2_direct_prefix_scan",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v2_negatives_allowed",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    n = len(nums)\n    best = n + 1\n    for i in range(n):\n        s = 0\n        for j in range(i, n):\n            s += nums[j]\n            if s >= target:\n                best = min(best, j - i + 1)\n                break\n    return 0 if best > n else best\n",
+      "code_hash": "b815e95e8443db990c575edef9be7d5e225d994ffd3d1d93400ba81d28514fef",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "impl_id": "ok_ex2_v1_binary_search_ans_tracker",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    ans = -1\n    while left <= right:\n        mid = (left + right) // 2\n        if nums[mid] >= target:\n            ans = mid\n            right = mid - 1\n        else:\n            left = mid + 1\n    return ans\n",
+      "code_hash": "18317701e70d1974e1fe0a18460cc108193b6609b5565667aae5e3d82dee0eaf",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "impl_id": "ok_ex2_v1_half_open_interval",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    lo, hi = 0, len(nums)\n    while lo < hi:\n        mid = (lo + hi) // 2\n        if nums[mid] >= target:\n            hi = mid\n        else:\n            lo = mid + 1\n    return lo if lo < len(nums) else -1\n",
+      "code_hash": "45330ab8df6237279b35a660eb2d03f320b3b5a8b249672f4fdf1a2ca14e2d03",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    },
+    {
+      "impl_id": "ok_ex3_v1_dp_tuple_swap",
+      "exercise_id": "ex3_max_product",
+      "spec_version": "v1_bounded_ints",
+      "source_code": "def max_product_subarray(nums: list[int]) -> int:\n    hi = lo = ans = nums[0]\n    for x in nums[1:]:\n        hi, lo = max(x, hi * x, lo * x), min(x, hi * x, lo * x)\n        ans = max(ans, hi)\n    return ans\n",
+      "code_hash": "54d64ec64100049002935e02fea1ec49580985ecadb9c27b50e802e5409da346",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC"
+    }
+  ]
+}

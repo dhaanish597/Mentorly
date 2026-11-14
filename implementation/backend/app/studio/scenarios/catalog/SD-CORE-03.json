@@ -1,0 +1,184 @@
+{
+  "scenario_id": "SD-CORE-03",
+  "scenario_version": "1.0.0",
+  "title": "URL shortener",
+  "learning_mode": "guided_system_design",
+  "difficulty": "intermediate",
+  "estimated_minutes": 30,
+  "linked_exercise_ids": [],
+  "prerequisites": [
+    "Identifiers",
+    "Storage",
+    "Read/write tradeoffs"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Design short-link creation and redirection. Clarify privacy, lifetime, collision handling and consistency after creation.",
+  "clarification_facts": {
+    "issued_links": 1000000000,
+    "alphabet_size": 62,
+    "read_rps": 100000,
+    "create_rps": 1000,
+    "redirect_p99_ms": 50
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Resolve a stable mapping",
+      "description": "A client reaches a service and durable mapping authority.",
+      "checks": [
+        {
+          "op": "node_kind",
+          "kinds": [
+            "stateless_service",
+            "api_gateway"
+          ]
+        },
+        {
+          "op": "node_kind",
+          "kinds": [
+            "relational_db",
+            "object_storage"
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Identifier space",
+      "description": "State key length and alphabet; compare keyspace with issued IDs while keeping collision policy explicit.",
+      "checks": [
+        {
+          "op": "keyspace"
+        },
+        {
+          "op": "property",
+          "key": "collision_policy",
+          "values": [
+            "unique_retry",
+            "allocated_range",
+            "collision_free_counter"
+          ]
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Hot link",
+      "description": "A single popular link gets most reads. Bound origin load with the stated miss fraction and read budget.",
+      "checks": [
+        {
+          "op": "origin_capacity"
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Deletion and abuse",
+      "description": "A deleted/private link must not remain usable indefinitely through stale caches.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "link_revocation",
+          "values": [
+            "versioned_tombstone",
+            "bounded_ttl",
+            "authorization_on_read"
+          ]
+        },
+        {
+          "op": "number",
+          "key": "revocation_bound_seconds",
+          "minimum": 0,
+          "maximum": null
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Random keys with uniqueness check",
+      "description": "Use collision detection/retry; a large keyspace alone does not prove no collisions."
+    },
+    {
+      "name": "Allocated ranges or encoded counter",
+      "description": "Allocate unique identifiers with an explicit privacy and allocation-failover policy."
+    }
+  ],
+  "common_misconceptions": [
+    "Base62 encoding is not access control.",
+    "A large namespace still needs a collision policy.",
+    "Caching a redirect changes revocation freshness."
+  ],
+  "hint_ladder": {
+    "level_1": "Separate key generation from the durable key-to-URL mapping.",
+    "level_2": "Compare random keys with allocated counter ranges and explain predictability.",
+    "level_3": "62^7 gives 3521614606208 possible keys, but random issuance still has birthday collisions. Enforce uniqueness or allocate non-overlapping IDs, then state redirect cache and revocation bounds."
+  },
+  "consolidation": "Identifier allocation, uniqueness, private-link access and revocation are different concerns. Namespace arithmetic is a deterministic estimate, not an abuse or security guarantee.",
+  "fresh_transfer_question": "How would custom aliases and expiring private links change the creation and redirect paths?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "property",
+      "key": "alias_unique_atomic",
+      "values": [
+        true
+      ]
+    },
+    {
+      "op": "property",
+      "key": "private_link_authorization",
+      "values": [
+        true
+      ]
+    }
+  ]
+}

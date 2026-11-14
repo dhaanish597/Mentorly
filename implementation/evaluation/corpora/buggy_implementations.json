@@ -1,0 +1,295 @@
+{
+  "schema_version": "2.0.0",
+  "description": "Exact 12 required bug families from original authoritative plan §3.4; no host source execution, no observed recall claimed.",
+  "fixtures": [
+    {
+      "fixture_id": "bug_ex1_02_strict_greater_instead_of_ge",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v1_positive_only",
+      "bug_category": "off_by_one_comparator",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    left = 0\n    curr_sum = 0\n    best = len(nums) + 1\n    for right, val in enumerate(nums):\n        curr_sum += val\n        while curr_sum > target:\n            best = min(best, right - left + 1)\n            curr_sum -= nums[left]\n            left += 1\n    return 0 if best > len(nums) else best\n",
+      "plan_bug": "strict_gt",
+      "code_hash": "b17c264174bd264bdc487550aefa4192db9736d40263d9ed15c3687f49e37e18",
+      "trigger_input": {
+        "nums": [
+          5
+        ],
+        "target": 5
+      },
+      "reference_output": 1,
+      "expected_student_output": 0,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "curr_sum == target does not enter the strict-greater shrink branch"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex1_04_missing_plus_one_length",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v1_positive_only",
+      "bug_category": "off_by_one_window_length",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    left = 0\n    curr_sum = 0\n    best = len(nums) + 1\n    for right, val in enumerate(nums):\n        curr_sum += val\n        while curr_sum >= target:\n            best = min(best, right - left)\n            curr_sum -= nums[left]\n            left += 1\n    return 0 if best > len(nums) else best\n",
+      "plan_bug": "off_by_one_length",
+      "code_hash": "fef2bd201efec672e8e2dae6319097070662e49ee3ddd1b1939a573b20d4c735",
+      "trigger_input": {
+        "nums": [
+          5
+        ],
+        "target": 5
+      },
+      "reference_output": 1,
+      "expected_student_output": 0,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "best is assigned right-left instead of right-left+1"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex1_01_positive_window_on_negatives",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v2_negatives_allowed",
+      "bug_category": "monotone_window_assumption_with_negatives",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    left = 0\n    curr_sum = 0\n    best = len(nums) + 1\n    for right, val in enumerate(nums):\n        curr_sum += val\n        while curr_sum >= target:\n            best = min(best, right - left + 1)\n            curr_sum -= nums[left]\n            left += 1\n    return 0 if best > len(nums) else best\n",
+      "plan_bug": "negative_sliding_window",
+      "code_hash": "47c28788b8c9b59d9ce1a52c894ca6bf172cc4429f4da5108f1c22fd1a74551b",
+      "trigger_input": {
+        "nums": [
+          1,
+          -1,
+          5
+        ],
+        "target": 5
+      },
+      "reference_output": 1,
+      "expected_student_output": 3,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "subtracting nums[0] changes curr_sum from 5 to 4 and ends shrink before removing -1"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex1_first_window_full_length",
+      "exercise_id": "ex1_shortest_subarray",
+      "spec_version": "v1_positive_only",
+      "bug_category": "first_qualifying_full_length",
+      "source_code": "def shortest_subarray_ge_target(nums: list[int], target: int) -> int:\n    curr_sum = 0\n    for right, x in enumerate(nums):\n        curr_sum += x\n        if curr_sum >= target:\n            return right + 1\n    return 0\n",
+      "plan_bug": "first_window_full_length",
+      "code_hash": "9726db0029e12f5a3683a7edb665913b4e0f5e818392f76dbe5f17a1594e0143",
+      "trigger_input": {
+        "nums": [
+          1,
+          1,
+          5
+        ],
+        "target": 5
+      },
+      "reference_output": 1,
+      "expected_student_output": 3,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "returns right+1 at first qualifying prefix without minimizing"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex2_return_mid_immediately",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "early_mid_return",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    while left <= right:\n        mid = (left + right) // 2\n        if nums[mid] >= target:\n            return mid\n        left = mid + 1\n    return -1\n",
+      "plan_bug": "immediate_mid",
+      "code_hash": "2c6be6259b08513d7584e103dffd5a71751f57a9969b42cf835d49cd992a9116",
+      "trigger_input": {
+        "nums": [
+          2,
+          2,
+          2
+        ],
+        "target": 2
+      },
+      "reference_output": 0,
+      "expected_student_output": 1,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "returns mid=1 without searching left"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex2_discard_mid_with_strict_lt_loop",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "discarded_mid_boundary",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    while left < right:\n        mid = (left + right) // 2\n        if nums[mid] >= target:\n            right = mid - 1\n        else:\n            left = mid + 1\n    return left\n",
+      "plan_bug": "discarded_mid",
+      "code_hash": "b5610beb59f6ad5ac5a7eeacdfaf903fe88b4d9cd013d4150aa767c3db8aea5f",
+      "trigger_input": {
+        "nums": [
+          1,
+          3,
+          5
+        ],
+        "target": 3
+      },
+      "reference_output": 1,
+      "expected_student_output": 0,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "mid=1 is discarded by right=mid-1; loop exits with left=0"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex2_missing_post_check",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "missing_post_check",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    while left < right:\n        mid = (left + right) // 2\n        if nums[mid] >= target:\n            right = mid\n        else:\n            left = mid + 1\n    return left\n",
+      "plan_bug": "missing_post_check",
+      "code_hash": "6419ad4870d539b98719ba09a9d853cb018fbbb3b0703fd1517828cff946c728",
+      "trigger_input": {
+        "nums": [
+          1,
+          3,
+          5
+        ],
+        "target": 6
+      },
+      "reference_output": -1,
+      "expected_student_output": 2,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "returns left=2 even though nums[2] < target"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex2_infinite_loop_left_eq_mid",
+      "exercise_id": "ex2_binary_search",
+      "spec_version": "v1_sorted_with_duplicates",
+      "bug_category": "nonprogressing_lower_mid",
+      "source_code": "def first_at_least(nums: list[int], target: int) -> int:\n    left, right = 0, len(nums) - 1\n    while left < right:\n        mid = (left + right) // 2\n        if nums[mid] >= target:\n            right = mid\n        else:\n            left = mid\n    return left if nums and nums[left] >= target else -1\n",
+      "plan_bug": "nonprogressing_left_mid",
+      "code_hash": "edac4e850ff70b19d19419799e916d86d3bd2a5b1476ef9ec68c013375b3b09e",
+      "trigger_input": {
+        "nums": [
+          1,
+          4
+        ],
+        "target": 4
+      },
+      "reference_output": 1,
+      "expected_student_output": null,
+      "expected_observation": "TIMEOUT",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "ABSTAIN causal-line localization unless bounded accepted-runsc trace observes repeated left=0,right=1,mid=0; timeout alone is not success"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex3_02_sequential_mutation_of_hi_before_lo",
+      "exercise_id": "ex3_max_product",
+      "spec_version": "v1_bounded_ints",
+      "bug_category": "clobbered_prior_hi_state",
+      "source_code": "def max_product_subarray(nums: list[int]) -> int:\n    hi = lo = ans = nums[0]\n    for x in nums[1:]:\n        hi = max(x, hi * x, lo * x)\n        lo = min(x, hi * x, lo * x)\n        ans = max(ans, hi)\n    return ans\n",
+      "plan_bug": "uncached_hi",
+      "code_hash": "17efc64ea3b09b573e41065754ceacee9662771a80f6db9074b03540b6c86365",
+      "trigger_input": {
+        "nums": [
+          -3,
+          -3,
+          -3
+        ]
+      },
+      "reference_output": 9,
+      "expected_student_output": 81,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "hi=9 is reused to assign lo=-27 at second element; final hi=81"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex3_01_tracks_only_max_ignores_min",
+      "exercise_id": "ex3_max_product",
+      "spec_version": "v1_bounded_ints",
+      "bug_category": "missing_min_product_state",
+      "source_code": "def max_product_subarray(nums: list[int]) -> int:\n    curr = best = nums[0]\n    for x in nums[1:]:\n        curr = max(x, curr * x)\n        best = max(best, curr)\n    return best\n",
+      "plan_bug": "positive_only_kadane",
+      "code_hash": "b680cd7d6fb06e68842dc3d2c227ddc2d5ebf42e9be3a87d19b13b59d7b94438",
+      "trigger_input": {
+        "nums": [
+          -2,
+          3,
+          -4
+        ]
+      },
+      "reference_output": 24,
+      "expected_student_output": 3,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "only max state is tracked; negative prior minimum is unavailable"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex3_03_initializes_ans_to_zero",
+      "exercise_id": "ex3_max_product",
+      "spec_version": "v1_bounded_ints",
+      "bug_category": "wrong_single_negative_initialization",
+      "source_code": "def max_product_subarray(nums: list[int]) -> int:\n    hi = lo = 1\n    ans = 0\n    for x in nums:\n        hi, lo = max(x, hi * x, lo * x), min(x, hi * x, lo * x)\n        ans = max(ans, hi)\n    return ans\n",
+      "plan_bug": "ans_zero",
+      "code_hash": "55e47d8301a54718d62153c70f898d83562a17b52be22e83f10cbe524e541e3d",
+      "trigger_input": {
+        "nums": [
+          -5
+        ]
+      },
+      "reference_output": -5,
+      "expected_student_output": 0,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "ans starts at zero and cannot return the single negative product"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    },
+    {
+      "fixture_id": "bug_ex3_reset_zero_to_one",
+      "exercise_id": "ex3_max_product",
+      "spec_version": "v1_bounded_ints",
+      "bug_category": "ans_one_reset_after_zero",
+      "source_code": "def max_product_subarray(nums: list[int]) -> int:\n    hi = lo = ans = nums[0]\n    for x in nums[1:]:\n        if x == 0:\n            hi = lo = 1\n            ans = max(ans, 1)\n            continue\n        hi, lo = max(x, hi * x, lo * x), min(x, hi * x, lo * x)\n        ans = max(ans, hi)\n    return ans\n",
+      "plan_bug": "reset_zero_to_one",
+      "code_hash": "d2adb8a01a5c618f62bb9244df278d7b677fedd8ff145bd46e71beaccaf9b400",
+      "trigger_input": {
+        "nums": [
+          -2,
+          0,
+          -1
+        ]
+      },
+      "reference_output": 0,
+      "expected_student_output": 1,
+      "expected_observation": "RETURN",
+      "replay_outcome": "PENDING_ACCEPTED_RUNSC",
+      "expected_trace_predicates": [
+        "zero branch sets hi=lo=1 and ans=max(ans,1), creating an illegal empty-product answer"
+      ],
+      "provenance": "Original authoritative plan §3.4; outputs are expected, not observed measurements."
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+.repository-workspace {
+  --repo-surface: var(--studio-surface, var(--surface, #fffdf9));
+  --repo-ink: var(--studio-ink, var(--ink, #29232d));
+  --repo-muted: var(--studio-muted, var(--muted, #6b5f72));
+  --repo-line: var(--studio-line, var(--subtle-line, #eadfce));
+  --repo-soft: var(--studio-soft, var(--soft, #f6ead9));
+  color: var(--repo-ink);
+  width: 100%;
+  min-width: 0;
+}
+.repository-workspace .repo-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 24px; }
+.repository-workspace .repo-heading h2 { font-size: clamp(26px, 3vw, 36px); margin: 0 0 8px; line-height: 1.2; }
+.repository-workspace .repo-heading p { margin: 0; color: var(--repo-muted); }
+.repository-workspace .repo-heading > .horizon-icon { width: 36px; height: 36px; color: var(--horizon-lavender, #8c78b8); }
+.repository-workspace button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; cursor: pointer; border-radius: 12px; font-weight: 600; font-size: 13px; transition: all 0.15s ease; }
+.repository-workspace button:disabled { cursor: not-allowed; opacity: .6; }
+.repository-workspace button.primary {
+  background: var(--horizon-coral, #ff735c) !important;
+  color: var(--horizon-plum, #24152f) !important;
+  border: 1px solid var(--horizon-coral, #ff735c) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(255, 115, 92, 0.25);
+}
+.repository-workspace button.primary:hover:not(:disabled) {
+  background: var(--horizon-coral-deep, #e85a43) !important;
+  color: var(--horizon-plum, #24152f) !important;
+  border-color: var(--horizon-coral-deep, #e85a43) !important;
+}
+.repository-workspace button.primary:disabled {
+  background: rgba(255, 115, 92, 0.2) !important;
+  color: var(--repo-muted, #c9bbd3) !important;
+  border: 1px solid var(--repo-line, #59465f) !important;
+  opacity: 0.75 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+.repository-workspace button.danger {
+  color: #ff9b9b !important;
+  background: rgba(255, 100, 100, 0.08) !important;
+  border: 1px solid rgba(255, 155, 155, 0.35) !important;
+  font-weight: 600;
+}
+.repository-workspace button.danger:hover:not(:disabled) {
+  background: rgba(255, 100, 100, 0.22) !important;
+  border-color: #ff9b9b !important;
+  color: #ffffff !important;
+}
+.repository-workspace button.danger:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+.repository-workspace label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.repository-workspace label > input, .repository-workspace label > select, .repository-workspace textarea { width: 100%; min-width: 0; }
+.repository-workspace :focus-visible { outline: 3px solid var(--horizon-lavender, #8c78b8); outline-offset: 3px; }
+.repository-workspace .repo-note { font-size: 12px; line-height: 1.65; color: var(--repo-muted); max-width: 65ch; }
+.repository-workspace .repo-import { padding: 24px; margin-bottom: 24px; background: var(--repo-surface); border: 1px solid var(--repo-line); border-radius: 24px; }
+.repository-workspace .repo-import h3 { margin: 0 0 16px; font-size: 23px; }
+.repository-workspace .repo-source-tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px; border-radius: 22px; background: var(--repo-soft); width: fit-content; }
+.repository-workspace .repo-source-tabs button { border: 0; background: transparent; border-radius: 20px; font-size: 12px; padding-inline: 15px; }
+.repository-workspace .repo-source-tabs button[aria-selected=true] { background: var(--repo-surface); color: var(--repo-ink); }
+.repository-workspace .repo-import-row { display: flex; align-items: end; gap: 12px; }
+.repository-workspace .repo-import-row label { flex: 1; margin-bottom: 0; }
+.repository-workspace .repo-import-row button { flex: none; }
+.repository-workspace .repo-snapshot-bar { padding: 12px 20px; border: 1px solid var(--repo-line); border-radius: 18px; background: var(--repo-surface); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: start; gap: 24px; }
+.repository-workspace .repo-snapshot-bar strong { font-size: 12px; }
+.repository-workspace .repo-snapshot-bar p { font-size: 12px; margin: 5px 0; color: var(--repo-muted); }
+.repository-workspace .repo-snapshot-bar > .repo-disclosure { border: 0; min-width: 160px; max-width: 70%; }
+.repository-workspace .repo-learning-grid { display: grid; grid-template-columns: minmax(280px, .78fr) minmax(0, 1.22fr); gap: 20px; align-items: start; }
+.repository-workspace .repo-mentor { background: var(--repo-surface); border: 1px solid var(--repo-line); border-radius: 26px; overflow: hidden; position: sticky; top: 18px; }
+.repository-workspace .repo-mentor-identity { padding: 18px 20px; background: var(--repo-soft); display: flex; align-items: center; gap: 18px; border-bottom: 1px solid var(--repo-line); }
+.repository-workspace .repo-mentor-identity .mentor-portrait { width: 94px; max-width: 94px; margin: 0; flex: none; }
+.repository-workspace .repo-mentor-identity h3 { margin: 0 0 5px; font-size: 22px; }
+.repository-workspace .repo-mentor-identity p { margin: 0; font-size: 11px; color: var(--repo-muted); }
+.repository-workspace .repo-conversation { padding: 20px; }
+.repository-workspace .repo-phase-switch { display: flex; gap: 4px; background: var(--repo-soft); padding: 4px; border-radius: 22px; width: fit-content; margin-bottom: 18px; }
+.repository-workspace .repo-phase-switch button { min-height: 38px; border: 0; border-radius: 18px; background: transparent; padding: 7px 18px; }
+.repository-workspace .repo-phase-switch button[aria-pressed=true] { background: var(--repo-surface); color: var(--repo-ink); opacity: 1; }
+.repository-workspace .repo-phase { font-size: 11px; color: var(--repo-muted); }
+.repository-workspace .repo-mentor-question { font-size: 17px; line-height: 1.6; padding: 18px; border-radius: 5px 20px 20px; margin: 0 0 18px; background: var(--studio-lavender-soft, var(--horizon-lavender-soft, #e6dff3)); }
+.repository-workspace .repo-last-answer { margin: 12px 0 18px auto; max-width: 95%; padding: 14px; background: var(--repo-soft); border-radius: 18px 5px 18px 18px; font-size: 13px; overflow-wrap: anywhere; }
+.repository-workspace .repo-last-answer strong { display: block; font-size: 11px; margin-bottom: 6px; color: var(--repo-muted); }
+.repository-workspace .repo-composer { border-top: 1px solid var(--repo-line); padding: 18px 20px; }
+.repository-workspace .repo-composer textarea { min-height: 96px; resize: vertical; background: var(--studio-bg, var(--background, #fff8ef)); }
+.repository-workspace .repo-composer .studio-voice { border: 0; padding: 0; background: transparent; }
+.repository-workspace .repo-composer .studio-voice > p { font-size: 11px; line-height: 1.6; color: var(--repo-muted); margin: 0 0 10px; }
+.repository-workspace .repo-composer .studio-voice > p[role=status] { margin-top: 10px; }
+.repository-workspace .repo-composer .studio-voice .studio-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.repository-workspace .repo-composer .studio-voice .studio-actions button { font-size: 12px; }
+.repository-workspace .repo-submit, .repository-workspace .repo-start { width: 100%; }
+.repository-workspace .repo-submit .horizon-icon { margin-left: auto; }
+.repository-workspace .repo-evidence { border: 1px solid var(--repo-line); background: var(--repo-surface); border-radius: 26px; padding: 24px; min-width: 0; }
+.repository-workspace .repo-evidence > header { border-bottom: 1px solid var(--repo-line); padding-bottom: 14px; margin-bottom: 8px; }
+.repository-workspace .repo-evidence > header h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 23px; }
+.repository-workspace .repo-evidence > header p { margin: 9px 0 0; }
+.repository-workspace .repo-disclosure { border-top: 1px solid var(--repo-line); margin: 4px 0 0; }
+.repository-workspace .repo-disclosure summary { min-height: 44px; padding: 14px 0; font-size: 12px; font-weight: 600; cursor: pointer; }
+.repository-workspace .repo-disclosure > div { padding-bottom: 12px; }
+.repository-workspace .repo-search { display: flex; align-items: end; gap: 10px; }
+.repository-workspace .repo-search label { flex: 1; margin-top: 0; margin-bottom: 0; }
+.repository-workspace .repo-search button { flex: none; }
+.repository-workspace .repo-hits, .repository-workspace .repo-map ul, .repository-workspace .repo-selected ul { list-style: none; padding: 0; }
+.repository-workspace .repo-hits li { border-bottom: 1px solid var(--repo-line); padding: 12px 0; }
+.repository-workspace .repo-hits .studio-check { display: flex; flex-direction: row; align-items: center; font-size: 12px; }
+.repository-workspace .studio-check input { width: 18px; min-height: 18px; }
+.repository-workspace .repo-source-link { justify-content: start; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
+.repository-workspace pre { font: 12px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; max-height: 380px; padding: 16px; border-radius: 14px; background: var(--repo-soft); }
+.repository-workspace .repo-map { padding: 12px 0; }
+.repository-workspace .repo-map h4 { margin: 4px 0 12px; font-size: 12px; color: var(--repo-muted); font-weight: 500; }
+.repository-workspace .repo-map ul { max-height: 240px; overflow: auto; margin: 0; }
+.repository-workspace .repo-map button { width: 100%; border: 0; border-radius: 6px; background: transparent; justify-content: start; text-align: left; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.repository-workspace .repo-map .horizon-icon { width: 16px; color: var(--repo-muted); }
+.repository-workspace .repo-source-view h4 { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.repository-workspace .repo-selected { margin: 12px 0; padding: 14px; background: var(--repo-soft); border-radius: 14px; font-size: 11px; }
+.repository-workspace .repo-selected ul { margin: 8px 0 0; }
+.repository-workspace .repo-selected li { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.repository-workspace .repo-selected li span { overflow-wrap: anywhere; }
+.repository-workspace .repo-selected button { flex: none; min-width: 44px; border: 0; background: transparent; }
+.repository-workspace .repo-manual { border: 0; margin: 0; padding: 0; min-width: 0; }
+.repository-workspace .repo-manual > button { margin: 4px 0 10px; }
+.repository-workspace .repo-result { border-left: 2px solid var(--horizon-lavender, #8c78b8); padding: 4px 0 4px 16px; margin: 16px 0 24px; overflow-wrap: anywhere; }
+.repository-workspace .repo-result h4 { font-size: 15px; margin: 4px 0 14px; }
+.repository-workspace .repo-result strong { font-size: 12px; }
+.repository-workspace .repo-result p { font-size: 12px; line-height: 1.65; }
+.repository-workspace .repo-citations { padding-left: 16px; font-size: 12px; }
+.repository-workspace .repo-citations button { font-size: 11px; text-align: left; overflow-wrap: anywhere; }
+.repository-workspace .repo-citations blockquote { margin: 10px 0; padding: 10px; background: var(--repo-soft); white-space: pre-wrap; }
+.repository-workspace .repo-empty { padding: 64px 24px; text-align: center; color: var(--repo-muted); font-size: 13px; }
+@media (max-width: 1050px) {
+  .repository-workspace .repo-learning-grid { grid-template-columns: minmax(280px, .95fr) minmax(0, 1.05fr); gap: 14px; }
+  .repository-workspace .repo-mentor-identity, .repository-workspace .repo-conversation, .repository-workspace .repo-composer, .repository-workspace .repo-evidence { padding: 16px; }
+  .repository-workspace .repo-mentor-identity .mentor-portrait { width: 72px; }
+}
+@media (max-width: 760px) {
+  .repository-workspace .repo-learning-grid { grid-template-columns: 1fr; }
+  .repository-workspace .repo-mentor { position: static; }
+  .repository-workspace .repo-snapshot-bar { display: block; }
+  .repository-workspace .repo-snapshot-bar > .repo-disclosure { max-width: 100%; }
+  .repository-workspace .repo-import-row { flex-direction: column; align-items: stretch; }
+  .repository-workspace .repo-heading > .horizon-icon { display: none; }
+  .repository-workspace .repo-source-tabs button { padding-inline: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .repository-workspace .mentor-portrait img { animation: none; }
+}

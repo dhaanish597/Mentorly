@@ -1,0 +1,60 @@
+/* A question-first desk: public contract above a compact voice companion. */
+.question-workspace { --question-rail-width: 76px; --voice-dock-height: 220px; }
+.question-workspace .product-sidebar { width: var(--question-rail-width); padding: 22px 12px; align-items: center; }
+.question-workspace .product-sidebar nav { width: 100%; margin-top: 35px; }
+.question-workspace .product-sidebar nav a, .question-workspace .sidebar-settings { justify-content: center; padding: 12px; }
+.question-workspace .product-sidebar nav a span, .question-workspace .sidebar-settings span, .question-workspace .sidebar-note { display: none; }
+.question-workspace .product-sidebar .horizon-brand strong { display: none; }
+.question-workspace .product-workspace-content { width: calc(100% - var(--question-rail-width)); }
+.question-workspace .sidebar-settings { margin-top: auto; }
+.practice-shell .workspace-grid { grid-template-columns: minmax(320px, 35%) 8px minmax(0, 1fr); grid-template-rows: minmax(300px, 1fr) 8px var(--voice-dock-height, 220px); gap: 0; }
+.practice-shell .workspace-grid .statement-pane { display: block; grid-column: 1; grid-row: 1; min-height: 0; border-radius: 18px; overflow: auto; }
+.practice-shell .workspace-grid .problem-panel { padding: 24px; }
+.practice-shell .problem-panel h1 { font-size: clamp(23px, 2vw, 30px); line-height: 1.2; }
+.practice-shell .problem-panel p, .practice-shell .problem-panel li { font-size: 13px; line-height: 1.65; }
+.practice-shell .workspace-grid .coach-pane { grid-column: 1; grid-row: 3; height: 100%; border-radius: 18px; }
+.practice-shell .workspace-grid .coach-resize { grid-column: 2; grid-row: 1 / 4; }
+.practice-shell .workspace-grid .code-panel { grid-column: 3; grid-row: 1; margin-left: 8px; border-radius: 18px; }
+.practice-shell .workspace-grid .results-pane { grid-column: 3; grid-row: 3; margin-left: 8px; border-radius: 18px; }
+.practice-shell .workspace-grid .results-resize { grid-column: 3; grid-row: 2; }
+.practice-shell .mentor-top-header { padding: 12px 16px; border: 0; background: transparent; }
+.practice-shell .mentor-avatar-box { width: 44px; height: 44px; background: var(--soft); }
+.practice-shell .mentor-input-dock { margin-top: auto; padding: 0 16px 12px; border: 0; }
+.voice-session-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.voice-session-controls .voice-turn-button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 48px; border-radius: 14px; }
+.voice-session-controls p { width: 100%; font-size: 11px; line-height: 1.5; color: var(--muted); margin: 3px 0 0; }
+.voice-session-controls .voice-text-toggle { min-height: 26px; padding: 2px 0; border: 0; background: transparent; font-size: 11px; color: var(--muted); text-align: left; }
+.practice-shell .mentor-chat-stream { padding: 10px 16px; }
+.practice-shell .mentor-chat-stream > .mentor-bubble:first-child { display: none; }
+.practice-shell .advanced-practice { padding: 0 16px 10px; font-size: 11px; overflow: auto; }
+.practice-shell .advanced-practice summary { cursor: pointer; color: var(--muted); }
+.practice-shell .advanced-practice[open] { position: fixed; bottom: 20px; left: 100px; z-index: 20; background: var(--surface); padding: 20px; border: 1px solid var(--subtle-line); border-radius: 16px; width: min(480px, calc(100vw - 120px)); max-height: 65dvh; box-shadow: 0 12px 40px #0003; }
+.practice-shell .start-session-hero { padding: 0 16px; }
+.practice-shell .start-session-hero .mentor-bubble, .practice-shell .start-session-note { display: none; }
+.practice-shell .code-panel .section-heading .button-row { flex-wrap: nowrap; }
+.practice-shell .code-panel .section-heading button { min-height: 40px; font-size: 12px; padding: 8px 14px; }
+.practice-shell .evidence-empty { padding: 12px 16px; }
+.practice-shell .workspace-grid.coach-collapsed { grid-template-columns: minmax(320px,35%) 8px minmax(0,1fr); }
+.practice-shell .workspace-grid.coach-collapsed .coach-pane { display: none !important; }
+.practice-shell button:focus-visible, .question-workspace a:focus-visible { outline: 2px solid var(--horizon-coral); outline-offset: 3px; }
+@media (min-width: 900px) {
+  .question-workspace .product-sidebar { display: flex; }
+  .question-workspace.product-shell { display: flex; padding-bottom: 0; }
+  .question-workspace .product-mobile-header, .question-workspace .product-mobile-nav { display: none; }
+  .question-workspace .practice-shell { height: 100dvh; }
+  .practice-shell .workspace-grid .code-panel, .practice-shell .workspace-grid .results-pane { display: flex; min-height: 0; }
+  .practice-shell .workspace-grid .code-panel .editor-container { min-height: 0; }
+  .practice-shell .mobile-pane-switch { display: none; }
+}
+@media (max-width: 899px) {
+  .question-workspace .product-workspace-content { width: 100%; }
+  .question-workspace { --voice-dock-height: 200px; }
+  .practice-shell .workspace-grid { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .practice-shell .workspace-grid .statement-pane { display: block; max-height: 42dvh; min-height: 220px; }
+  .practice-shell .workspace-grid .coach-pane { display: flex !important; order: 3; height: auto !important; min-height: 180px !important; }
+  .practice-shell .workspace-grid .code-panel, .practice-shell .workspace-grid .results-pane { display: none; min-height: 320px; margin-left: 0; }
+  .practice-shell .workspace-grid[data-mobile-pane=Code] .code-panel, .practice-shell .workspace-grid[data-mobile-pane=Results] .results-pane { display: flex; }
+  .practice-shell .workspace-grid .code-panel .editor-container { min-height: 300px; }
+  .practice-shell .workspace-grid .coach-resize, .practice-shell .workspace-grid .results-resize { display: none; }
+  .practice-shell .advanced-practice[open] { left: 16px; bottom: 80px; width: calc(100vw - 32px); }
+}

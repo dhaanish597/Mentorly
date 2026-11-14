@@ -1,0 +1,204 @@
+{
+  "scenario_id": "SD-CORE-04",
+  "scenario_version": "1.0.0",
+  "title": "Notification fan-out",
+  "learning_mode": "guided_system_design",
+  "difficulty": "intermediate",
+  "estimated_minutes": 30,
+  "linked_exercise_ids": [],
+  "prerequisites": [
+    "Fan-out arithmetic",
+    "Provider outages",
+    "User preferences"
+  ],
+  "learning_objectives": [
+    "Clarify missing requirements",
+    "Propose and revise an inspectable architecture",
+    "Defend explicit tradeoffs and uncertainty"
+  ],
+  "problem_statement": "Notify recipients of an event without coupling user-facing latency to slow or unavailable delivery providers.",
+  "clarification_facts": {
+    "event_rate_per_second": 100,
+    "recipients_per_event": 10000,
+    "provider_failure_minutes": 10,
+    "delivery_semantics": "at least once; suppress duplicate effects where supported"
+  },
+  "seed_graph": {
+    "nodes": [
+      {
+        "node_id": "client",
+        "kind": "client",
+        "label": "Client",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      },
+      {
+        "node_id": "service",
+        "kind": "stateless_service",
+        "label": "Application service",
+        "replica_count": 1,
+        "statefulness": "stateless",
+        "partition_key": "",
+        "consistency_mode": "unspecified",
+        "notes": "",
+        "properties": {}
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "request",
+        "source_node_id": "client",
+        "target_node_id": "service",
+        "protocol": "http_rest",
+        "directionality": "sync_request_reply",
+        "rate_estimate_rps": null,
+        "failure_behavior": "unspecified"
+      }
+    ],
+    "assumptions": {}
+  },
+  "progressive_constraints": [
+    {
+      "title": "Accepted event",
+      "description": "Persist pending work before accepting delivery responsibility.",
+      "checks": [
+        {
+          "op": "any_of",
+          "groups": [
+            [
+              {
+                "op": "node_kind",
+                "kinds": [
+                  "message_queue"
+                ]
+              },
+              {
+                "op": "property",
+                "key": "durable_pending",
+                "values": [
+                  true
+                ]
+              }
+            ],
+            [
+              {
+                "op": "node_kind",
+                "kinds": [
+                  "relational_db"
+                ]
+              },
+              {
+                "op": "property",
+                "key": "outbox",
+                "values": [
+                  true
+                ]
+              }
+            ]
+          ]
+        }
+      ],
+      "id": "C0"
+    },
+    {
+      "title": "Fan-out capacity",
+      "description": "Compute recipients per second and compare with declared dispatch capacity.",
+      "checks": [
+        {
+          "op": "fanout_capacity"
+        }
+      ],
+      "id": "C1"
+    },
+    {
+      "title": "Provider failure",
+      "description": "A provider is unavailable for ten minutes; recover with bounded retries and an observable terminal state.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "retry_terminal_policy",
+          "values": [
+            "dead_letter",
+            "bounded_manual_review"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "idempotent_effects",
+          "values": [
+            true
+          ]
+        }
+      ],
+      "id": "C2"
+    },
+    {
+      "title": "Preference change",
+      "description": "A user unsubscribes after event acceptance but before sending. State the preference decision boundary.",
+      "checks": [
+        {
+          "op": "property",
+          "key": "preference_check",
+          "values": [
+            "at_dispatch",
+            "versioned_snapshot_with_consent"
+          ]
+        },
+        {
+          "op": "property",
+          "key": "fairness_policy",
+          "values": [
+            "per_tenant_limit",
+            "weighted_fair_queue",
+            "partitioned_lanes"
+          ]
+        }
+      ],
+      "id": "C3"
+    }
+  ],
+  "valid_architecture_families": [
+    {
+      "name": "Fan-out on write",
+      "description": "Materialize recipient jobs with a durable outbox and bounded worker pool."
+    },
+    {
+      "name": "Fan-out on read or grouped dispatch",
+      "description": "Retain events and derive recipients in batches at dispatch; preserve preference and retry identity."
+    }
+  ],
+  "common_misconceptions": [
+    "One event can imply a million effects, not one queue task.",
+    "A successful enqueue is not a delivered notification.",
+    "A retry can violate user preferences unless the policy is explicit."
+  ],
+  "hint_ladder": {
+    "level_1": "Multiply event rate by recipients before picking worker count.",
+    "level_2": "Compare materialized per-recipient jobs with grouped batch derivation.",
+    "level_3": "100 events/sec times 10000 recipients is 1M dispatches/sec before retries. A ten-minute outage creates backlog; retain delivery identity and define where current preferences are checked."
+  },
+  "consolidation": "Fan-out, delivery attempts, provider limits and preference validity must be modeled independently. Estimated dispatch capacity remains a declared assumption until benchmarked.",
+  "fresh_transfer_question": "What changes if one event targets ten million recipients while normal events target ten?",
+  "rubric": [
+    "requirement_clarification",
+    "capacity_assumptions",
+    "failure_boundary",
+    "tradeoff_and_revision"
+  ],
+  "coach_instructions": "One clear question at a time. Inspect actual graph and stated assumptions. Do not grade prose by keywords or require a vendor name. Numeric assumptions are learner declarations, not measured performance. Explain when asked, require teach-back, and preserve alternative valid designs. Do not silently edit the diagram.",
+  "fresh_transfer_checks": [
+    {
+      "op": "number",
+      "key": "recipients_per_event",
+      "minimum": 10000000,
+      "maximum": null
+    },
+    {
+      "op": "fanout_capacity"
+    }
+  ]
+}
