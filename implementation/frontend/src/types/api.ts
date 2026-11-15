@@ -622,7 +622,7 @@ export interface AudioEvent {
 }
 
 export interface SpeechCapacityStatus {
-  deployment_topology: 'SINGLE_PROCESS_LOCAL_SEMAPHORE';
+  deployment_topology?: 'SINGLE_PROCESS_LOCAL_SEMAPHORE' | 'DISTRIBUTED_POSTGRES_LEASE';
   max_concurrency?: number;
   active_requests: number;
   queued_requests: number;

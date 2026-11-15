@@ -33,7 +33,7 @@ def ident(value):
     except ValueError: err(422, 'Expected UUID')
 
 def token(header): return header[7:] if header.startswith('Bearer ') else ''
-def connection(req): return open_connection(req.app.state.settings.database_path)
+def connection(req): return open_connection(req.app.state.settings.database_target)
 
 def auth(conn, sid, header):
     row = conn.execute('SELECT * FROM studio_sessions WHERE id=?', (sid,)).fetchone()
@@ -211,7 +211,7 @@ def snapshot(req: Request,sid: str,authorization: str = Header(default='')):
         events=[dict(r) for r in conn.execute('SELECT sequence,event_type,payload_json,created_at FROM studio_events WHERE session_id=? ORDER BY sequence',(sid,))]
         turns=[dict(r) for r in conn.execute('SELECT id,epoch,diagram_revision,kind,content,created_at,transcript_revision,superseded_by FROM studio_turns WHERE session_id=? ORDER BY created_at,id',(sid,))]
         from backend.app.repo_learning.service import repo_session_summary
-        repo_summary=repo_session_summary(req.app.state.settings.database_path,s['workspace_id'],sid) if s['repo_snapshot_id'] else None
+        repo_summary=repo_session_summary(req.app.state.settings.database_target,s['workspace_id'],sid) if s['repo_snapshot_id'] else None
         phase=next((json.loads(e['payload_json'])['phase'] for e in reversed(events) if 'phase' in json.loads(e['payload_json'])),'clarify')
         return {'phase':phase,'repo_summary':repo_summary,'session_id':sid,'workspace_id':s['workspace_id'],'mode':s['mode'],'posture':s['posture'],'scenario_id':s['scenario_id'],'scenario_version':s['scenario_version'],'repo_snapshot_id':s['repo_snapshot_id'],'epoch':s['epoch'],'diagram_revision':s['diagram_revision'],'state':s['state'],'scenario_hash':s['scenario_hash'],'constraint_index':s['constraint_index'],'hint_level':s['hint_level'],'expires_at':s['expires_at'],'deadline_at':s['deadline_at'],'remaining_seconds':s['remaining_seconds'],'graph':graph,'turns':turns,'events':[{'sequence':e['sequence'],'type':e['event_type'],'payload':json.loads(e['payload_json']),'created_at':e['created_at']} for e in events]}
 
@@ -485,7 +485,7 @@ def delete_workspace(req: Request,wid: str,authorization: str = Header(default='
         return {'deleted':True}
     from backend.app.repo_learning.lifecycle import cancel_workspace
     return mutation(req,wid,x_idempotency_key,{},act,
-                    on_commit=lambda _: cancel_workspace(req.app.state.settings.database_path,wid))
+                    on_commit=lambda _: cancel_workspace(req.app.state.settings.database_target,wid))
 
 @router.get('/sessions/{sid}/scenario')
 def current_scenario(req: Request,sid: str,authorization: str = Header(default='')):
@@ -559,7 +559,7 @@ def coach(req: Request,sid: str,data: CoachAction,authorization: str = Header(de
                 transfer_id=next(tid for seq,tid in reversed(recorded) if seq>transfer)
                 evidence=conn.execute('SELECT id FROM studio_turns WHERE id=? AND session_id=?',(transfer_id,sid)).fetchone()
             else:
-                evidence=conn.execute('SELECT id FROM studio_turns WHERE session_id=? AND superseded_by IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1',(sid,)).fetchone()
+                evidence=conn.execute('SELECT id FROM studio_turns WHERE session_id=? AND superseded_by IS NULL ORDER BY created_at DESC,id DESC LIMIT 1',(sid,)).fetchone()
             exists=conn.execute('SELECT id FROM studio_review_cards WHERE session_id=? AND prompt=?',(sid,spec['fresh_transfer_question'])).fetchone()
             if evidence and not exists:
                 from fsrs import Card

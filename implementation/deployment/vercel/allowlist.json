@@ -1,0 +1,37 @@
+{
+  "groups": [
+    {"source": "backend/app", "destination": "backend/app", "patterns": ["**/*.py", "**/*.json", "**/*.sql"]},
+    {"source": "config", "destination": "config", "patterns": ["branding.json", "supabase-prod-ca-2021.crt"]},
+    {"source": "exec_worker", "destination": "exec_worker", "patterns": ["__init__.py"]},
+    {"source": "exec_worker/runner", "destination": "exec_worker/runner", "patterns": ["*.py"]},
+    {"source": "exec_worker/worker_app", "destination": "exec_worker/worker_app", "patterns": ["*.py"]},
+    {"source": "exec_worker/vercel_sandbox", "destination": "exec_worker/vercel_sandbox", "patterns": ["__init__.py", "adapter.py", "supervisor.py", "acceptance.py", "integration.py", "cleanup_store.py", "cleanup_store.sql", "live_acceptance.py", "native_protocol.py", "native/guard.c", "native/build.py", "native/build-provenance.json", "native/_viva_native.so", "accepted-runtime.json"]}
+  ],
+  "required": [
+    "backend/app/main.py",
+    "backend/app/exercises/case_manifest.json",
+    "backend/app/repo_learning/golden/viva.json",
+    "backend/app/repo_learning/golden/webhookref.json",
+    "backend/app/db/postgres/runtime_migrations/sqlite_source_manifest.json",
+    "config/branding.json",
+    "config/supabase-prod-ca-2021.crt",
+    "exec_worker/runner/run_invocation.py",
+    "exec_worker/worker_app/sandbox_runner.py",
+    "exec_worker/vercel_sandbox/adapter.py",
+    "exec_worker/vercel_sandbox/supervisor.py",
+    "exec_worker/vercel_sandbox/integration.py",
+    "exec_worker/vercel_sandbox/cleanup_store.py",
+    "exec_worker/vercel_sandbox/cleanup_store.sql",
+    "exec_worker/vercel_sandbox/live_acceptance.py",
+    "exec_worker/vercel_sandbox/native_protocol.py",
+    "exec_worker/vercel_sandbox/native/guard.c",
+    "exec_worker/vercel_sandbox/native/build.py",
+    "exec_worker/vercel_sandbox/native/build-provenance.json",
+    "exec_worker/vercel_sandbox/native/_viva_native.so"
+  ],
+  "required_directories": [
+    "backend/app/db/postgres/runtime_migrations",
+    "backend/app/studio/scenarios/catalog"
+  ],
+  "static_extensions": [".html", ".js", ".css", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".wasm", ".txt", ".json"]
+}

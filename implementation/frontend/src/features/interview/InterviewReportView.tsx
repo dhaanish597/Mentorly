@@ -21,6 +21,7 @@ export function InterviewReportView({ report, onRecommendation }: ReportProps): 
       </li>)}</ul>
     </article>)}
     <section aria-labelledby="interview-practice-title"><h3 id="interview-practice-title">Practice next</h3>
+      {report.practice_topics?.map(item => <article key={`${item.type}:${item.topic}`}><h4>{item.topic.replace(/-/g, ' ')}</h4><p>{item.reason}</p></article>)}
       {report.recommendations.length ? report.recommendations.map(item => <article key={`${item.exercise_id}:${item.spec_version}`} className="interview-recommendation"><p>{item.reason}</p><p>Exercise: <code>{item.exercise_id}</code> · {item.lesson_id ? `Lesson: ${item.lesson_id}` : 'Lesson mapping not available'}</p>
         {onRecommendation ? <button type="button" onClick={() => onRecommendation(item)}>Open recommended practice</button> : <a href={`/practice/${encodeURIComponent(item.exercise_id)}?spec=${encodeURIComponent(item.spec_version)}`}>Open recommended practice</a>}
       </article>) : <p>No catalog-backed lesson mapping is available for this interview type. Revisit your assumptions and add concrete examples.</p>}

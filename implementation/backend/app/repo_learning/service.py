@@ -1,6 +1,6 @@
 """Immutable sanitized repository snapshots and evidence retrieval."""
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from contextlib import closing
 import json
 import re
@@ -13,7 +13,12 @@ from . import idempotency, lifecycle
 
 def recover_incomplete(db_path: str) -> None:
     with closing(open_connection(db_path)) as db:
-        db.execute("UPDATE repo_snapshots SET status='FAILED', failure_code='INTERRUPTED' WHERE status IN ('QUEUED','INDEXING')")
+        from backend.app.db.postgres.runtime import PostgresTarget
+        if isinstance(db_path, PostgresTarget):
+            cutoff = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+            db.execute("UPDATE repo_snapshots SET status='FAILED', failure_code='INTERRUPTED' WHERE status IN ('QUEUED','INDEXING') AND created_at<?", (cutoff,))
+        else:
+            db.execute("UPDATE repo_snapshots SET status='FAILED', failure_code='INTERRUPTED' WHERE status IN ('QUEUED','INDEXING')")
 
 
 def make_id(): return str(uuid.uuid4())

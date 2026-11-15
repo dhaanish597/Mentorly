@@ -29,7 +29,7 @@ class QuizSubmissionRequest(BaseModel):
 
 def _get_db() -> sqlite3.Connection:
     settings = get_settings()
-    return open_connection(settings.database_path)
+    return open_connection(settings.database_target)
 
 
 def _get_today_iso() -> str:

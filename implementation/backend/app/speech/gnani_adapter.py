@@ -121,7 +121,14 @@ def build_ws_stt_init_frame(req: STTRequest) -> dict[str, Any]:
     client_req_id = req.request_id or f"stt_ws_{uuid.uuid4().hex[:16]}"
     frame: dict[str, Any] = {
         "model": "prisma-v3.0",
-        "language_code": req.language_mode.value,
+        # The deployed WS endpoint rejects the mixed language list before connected.
+        # Single Tamil + codemix accepted and preserved both languages in a synthetic
+        # roundtrip. Keep the learner mode and REST language list unchanged.
+        "language_code": (
+            LanguageMode.TA_IN.value
+            if req.language_mode == LanguageMode.TA_IN_EN_IN
+            else req.language_mode.value
+        ),
         "format": select_gnani_stt_format(req.language_mode),
         "sample_rate": 16000,
         "x-sample-rate": "16000",

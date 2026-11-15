@@ -5,6 +5,7 @@ import json
 from typing import Literal
 
 import httpx
+import asyncio
 
 from backend.app.core.config import Settings
 
@@ -41,6 +42,14 @@ async def probe_execution_readiness(settings: Settings) -> ExecutionReadiness:
     """Never equate a configuration flag or operator marker with live acceptance."""
     if not settings.allow_public_custom_code:
         return "DISABLED"
+    if settings.execution_runtime == 'vercel_sandbox':
+        try:
+            from backend.app.core.worker_factory import get_worker_client
+            worker = get_worker_client(settings)
+            preflight = await asyncio.to_thread(worker.check_preflight)
+            return 'READY' if preflight.ready and preflight.acceptance_verified else 'BLOCKED_EXTERNAL'
+        except Exception:
+            return 'BLOCKED_EXTERNAL'
     if not settings.internal_worker_secret or not has_operator_acceptance(settings):
         return "BLOCKED_EXTERNAL"
     try:

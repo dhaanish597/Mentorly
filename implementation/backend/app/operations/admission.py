@@ -26,6 +26,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from backend.app.core.logging import get_logger, get_request_id
 from backend.app.db.migrations import open_connection
+from backend.app.db.postgres.runtime import PostgresTarget
+from backend.app.db.postgres import cloud
+from uuid import uuid4
 
 _SESSION_PATH = re.compile(r"^/api/v1/sessions/([^/]+)(?:/|$)")
 _STUDIO_PATH = re.compile(r"^/api/v1/studio/sessions/([^/]+)(?:/|$)")
@@ -66,17 +69,27 @@ class AdmissionController:
         self._lock = threading.Lock()
         self._inflight = 0
         self._clock_anchor: tuple[float, float] | None = None
+        self._cloud = isinstance(database_path, PostgresTarget)
+        self._owner = str(uuid4())
 
     def try_acquire(self) -> bool:
         """Reserve one process-local slot without waiting for a free slot."""
+        if self._cloud:
+            return cloud.acquire(self.database_path, kind='request', owner=self._owner,
+                                 limit=self.max_inflight, seconds=360)
         with self._lock:
             if self._inflight >= self.max_inflight:
                 return False
             self._inflight += 1
             return True
 
-    def release(self) -> None:
+    def release(self, slot=None) -> None:
         """Release a previously acquired slot; misuse must not weaken the bound."""
+        if self._cloud:
+            if not isinstance(slot, cloud.Lease) or slot.owner != self._owner:
+                raise RuntimeError('No owned shared admission slot is held')
+            cloud.finish(self.database_path, slot)
+            return
         with self._lock:
             if self._inflight <= 0:
                 raise RuntimeError("No admission slot is held.")
@@ -143,6 +156,10 @@ class AdmissionController:
         with closing(open_connection(self.database_path)) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                if self._cloud:
+                    now = cloud.database_now(conn)
+                    window = int(now // self.window_seconds) * self.window_seconds
+                    retry_after = max(1, math.ceil(window + self.window_seconds - now))
                 subject = self._session_subject(conn, scope, token, now)
                 buckets: tuple[tuple[str, str, int], ...] = ()
                 if not session_only:
@@ -165,7 +182,7 @@ class AdmissionController:
                 for bucket, hashed_subject, _limit in buckets:
                     conn.execute("INSERT INTO admission_counters VALUES (?, ?, ?, 1) "
                                  "ON CONFLICT(bucket, subject_hash, window_start) DO UPDATE "
-                                 "SET request_count = request_count + 1",
+                                 "SET request_count = admission_counters.request_count + 1",
                                  (bucket, hashed_subject, window))
                 conn.execute("COMMIT")
                 return AdmissionDecision(True, session_charged=subject is not None)
@@ -211,7 +228,13 @@ class AdmissionMiddleware:
         if scope["type"] not in ("http", "websocket") or not (path == "/api/v1" or path.startswith("/api/v1/")):
             await self.app(scope, receive, send)
             return
-        if not self.controller.try_acquire():
+        try:
+            slot = await run_in_threadpool(self.controller.try_acquire)
+        except sqlite3.Error as exc:
+            _LOGGER.error('Shared admission unavailable (%s)', type(exc).__name__)
+            await self._deny(scope, receive, send, AdmissionDecision(False, 503, 'ADMISSION_UNAVAILABLE'))
+            return
+        if not slot:
             await self._deny(scope, receive, send, AdmissionDecision(False, 503, "QUEUE_FULL"))
             return
         try:
@@ -223,7 +246,10 @@ class AdmissionMiddleware:
             else:
                 await self.app(scope, receive, send)
         finally:
-            self.controller.release()
+            if isinstance(slot, cloud.Lease):
+                await run_in_threadpool(self.controller.release, slot)
+            else:
+                self.controller.release()
 
     async def _websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
         first_frame, denied = True, False

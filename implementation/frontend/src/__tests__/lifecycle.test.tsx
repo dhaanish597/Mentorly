@@ -364,7 +364,7 @@ describe('Revision-bound learning lifecycle', () => {
     const confirm = vi.spyOn(api, 'confirmTurnClaim').mockResolvedValue({ ...result({ artifact: null, challenge: null, trace_report: null, learning_state: 'EXPLAINING' }) });
     await restore({ challenges: [], evidence_artifacts: [], trace_report: null, coaching: null, active_turn: { state: 'AWAITING_CLAIM_CONFIRMATION' as const, turn_id: 'turn-explanation', proposed_claim: claim, capture_attempt_id: 7, turn_generation: 1, transcript: 'The window only grows' } });
     expect(screen.getByRole('textbox', { name: 'Editable Learner Transcript' })).toHaveValue('The window only grows');
-    expect(screen.queryByRole('button', { name: 'Confirm Explanation (No Execution)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Explanation (No Execution)' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Submit prediction & run' })).not.toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
     expect(screen.queryByRole('region', { name: 'Execution & Prediction Comparison' })).not.toBeInTheDocument();

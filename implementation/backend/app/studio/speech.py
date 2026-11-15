@@ -6,6 +6,7 @@ import json
 import threading
 import uuid
 from contextlib import closing, asynccontextmanager
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,15 +46,43 @@ def cancel_tasks(sid,epoch=None,*,before_epoch=None):
     for loop,task in entries: loop.call_soon_threadsafe(task.cancel)
 
 
+@dataclass
+class SpeechSlot:
+    gate: object
+    lease: object
+    started: bool = False
+    completed: bool = False
+
+    def start(self):
+        method = getattr(self.gate, '_start_single_slot', None)
+        if method is not None:
+            method(self.lease)
+        self.started = True
+
+    def complete(self):
+        self.completed = True
+
+
 @asynccontextmanager
 async def speech_slot(req):
     """Share legacy speech's bounded queue without duplicating its usage ledger."""
     gate=req.app.state.speech.gatekeeper
-    await gate._acquire_single_slot()
+    params = getattr(req, 'path_params', {})
+    owner = params.get('sid') or params.get('session_id')
+    lease = await gate._acquire_single_slot(owner) if getattr(gate, '_cloud', False) else await gate._acquire_single_slot()
+    slot = SpeechSlot(gate, lease)
     try:
-        yield
+        yield slot
+    except GnaniTransportError as exc:
+        # A definite provider rejection leaves no physical request in progress.
+        if exc.status_code is not None and not exc.audio_emitted and not exc.completed_chars:
+            slot.complete()
+        raise
     finally:
-        gate._release_single_slot()
+        if lease is None:
+            gate._release_single_slot()
+        else:
+            gate._release_single_slot(lease, uncertain=slot.started and not slot.completed)
 
 
 def event_text(db,session,epoch,sequence):
@@ -120,7 +149,7 @@ def reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls
     if not 8<=len(key)<=128: raise HTTPException(400,'X-Idempotency-Key required')
     settings=req.app.state.settings
     if not validated_credential(settings.gnani_api_key): raise HTTPException(503,'Cloud speech unavailable; use text')
-    with closing(open_connection(settings.database_path)) as db:
+    with closing(open_connection(settings.database_target)) as db:
         db.execute('BEGIN IMMEDIATE')
         s=auth(db,sid,authorization)
         if s['epoch']!=epoch: raise HTTPException(409,'Turn epoch conflict')
@@ -149,7 +178,7 @@ def reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls
 def settle(req,rid,status):
     if rid is None:
         return
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(req.app.state.settings.database_target)) as db:
         if status=='UNDISPATCHED':
             # No provider work occurred: remove admission, permitting a safe retry.
             db.execute("DELETE FROM studio_speech_usage WHERE id=? AND status='RESERVED'",(rid,))
@@ -158,7 +187,7 @@ def settle(req,rid,status):
 
 
 def current(req,sid,authorization,epoch):
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(req.app.state.settings.database_target)) as db:
         row=auth(db,sid,authorization)
         if row['epoch']!=epoch: raise HTTPException(409,'Speech result superseded')
 
@@ -174,13 +203,16 @@ async def run_provider(req,sid,authorization,epoch,key,operation,digest,seconds,
     rid=None
     status='UNDISPATCHED'
     try:
-        async with speech_slot(req):
+        async with speech_slot(req) as slot:
             check_current()
             rid=reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls)
             check_current()
             status='UNCERTAIN'
+            slot.start()
             # wait_for cancels and awaits adapter cleanup before the lease releases.
-            result=await asyncio.wait_for(dispatch(),timeout=PROVIDER_DEADLINE_SECONDS)
+            from backend.app.speech.routes import _await_connected_voice
+            result=await asyncio.wait_for(_await_connected_voice(req,dispatch()),timeout=PROVIDER_DEADLINE_SECONDS)
+            slot.complete()
             status='COMMITTED'
             check_current()
         return result
@@ -218,14 +250,14 @@ async def stt(req:Request,sid:str,data:STTBody,authorization:str=Header(default=
 
 @router.post('/{sid}/speech/tts')
 async def tts(req:Request,sid:str,data:TTSBody,authorization:str=Header(default=''),x_idempotency_key:str=Header(default='')):
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(req.app.state.settings.database_target)) as db:
         session=auth(db,sid,authorization)
         text=event_text(db,session,data.epoch,data.event_sequence)
         selection=session_tts_selection(session,model=req.app.state.settings.gnani_tts_model,
                                          default_voice=req.app.state.settings.gnani_tts_voice,
                                          language=data.language,voice=data.voice)
     def check_current():
-        with closing(open_connection(req.app.state.settings.database_path)) as db:
+        with closing(open_connection(req.app.state.settings.database_target)) as db:
             session=auth(db,sid,authorization)
             if event_text(db,session,data.epoch,data.event_sequence)!=text:
                 raise HTTPException(409,'Coach text superseded')

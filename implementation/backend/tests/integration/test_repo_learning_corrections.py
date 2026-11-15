@@ -22,7 +22,7 @@ def context(tmp_path):
             conn.execute('INSERT INTO studio_workspaces(id,token_hash,created_at,expires_at) VALUES (?,?,?,?)',
                          (owner, digest_token(owner * 40), '2026-01-01T00:00:00+00:00', '2099-01-01T00:00:00+00:00'))
     app = FastAPI()
-    app.state.settings = SimpleNamespace(database_path=db)
+    app.state.settings = SimpleNamespace(database_target=db,database_path=db)
     app.include_router(routes.router, prefix='/api/v1')
     return db, TestClient(app)
 
@@ -32,16 +32,19 @@ def headers(owner='a', key=None):
     return {**result, 'X-Idempotency-Key': key} if key is not None else result
 
 
-def zip_bytes(source):
+def zip_bytes(source, *, date_time=(2026, 1, 1, 0, 0, 0)):
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as archive:
-        archive.writestr('app.py', source)
+        # Retries must resend the same archive bytes, including ZIP metadata.
+        archive.writestr(zipfile.ZipInfo('app.py', date_time), source)
     return output.getvalue()
 
 
-def imported(client, owner='a', key=None):
+def imported(client, owner='a', key=None, *, archive=None):
+    if archive is None:
+        archive = zip_bytes('def first():\n return 1\n\ndef second():\n return 2\n')
     return client.post('/api/v1/repos/ingest', headers=headers(owner, key),
-                       files={'file': ('repo.zip', zip_bytes('def first():\n return 1\n\ndef second():\n return 2\n'), 'application/zip')})
+                       files={'file': ('repo.zip', archive, 'application/zip')})
 
 
 def citations(client, sid, owner='a'):
@@ -268,6 +271,26 @@ def test_ingest_explicit_key_conflict_and_owner_isolation(context):
     assert foreign.json()['snapshot_id'] != first.json()['snapshot_id']
 
 
+@pytest.mark.parametrize('key,expected_status', [(None, 429), ('changed-archive-retry', 409)])
+def test_ingest_changed_archive_metadata_is_not_an_identical_retry(context, monkeypatch, key, expected_status):
+    db, client = context
+    source = 'def first():\n return 1\n'
+    first_archive = zip_bytes(source, date_time=(2026, 1, 1, 0, 0, 0))
+    changed_archive = zip_bytes(source, date_time=(2026, 1, 1, 0, 0, 2))
+    assert first_archive != changed_archive
+    assert ingest.unpack(first_archive) == ingest.unpack(changed_archive)
+    monkeypatch.setattr(service, 'WORKSPACE_SNAPSHOT_LIMIT', 1)
+    first = imported(client, key=key, archive=first_archive)
+    changed = imported(client, key=key, archive=changed_archive)
+    retry = imported(client, key=key, archive=first_archive)
+    assert first.status_code == retry.status_code == 202
+    assert retry.json() == first.json()
+    assert changed.status_code == expected_status
+    with open_connection(db) as conn:
+        assert conn.execute('SELECT count(*) FROM repo_snapshots').fetchone()[0] == 1
+        assert conn.execute('SELECT count(*) FROM repo_idempotency').fetchone()[0] == 1
+
+
 @pytest.mark.parametrize('key', [None, 'evidence-retry-01'])
 def test_evidence_and_decision_replays_conflicts_and_quota(context, monkeypatch, key):
     db, client = context
@@ -294,14 +317,24 @@ def test_evidence_and_decision_replays_conflicts_and_quota(context, monkeypatch,
         assert conn.execute('SELECT count(*) FROM repo_decisions').fetchone()[0] == 1
 
 
-def test_concurrent_retries_create_one_snapshot_and_one_evidence_record(context):
+@pytest.mark.parametrize('key', [None, 'concurrent-import'])
+def test_concurrent_retries_create_one_snapshot_and_one_evidence_record(context, monkeypatch, key):
     from concurrent.futures import ThreadPoolExecutor
     db, client = context
+    calls = []
+    original = routes.run_import
+    async def tracked(*args):
+        calls.append(args[2])
+        await original(*args)
+    monkeypatch.setattr(routes, 'run_import', tracked)
+    monkeypatch.setattr(service, 'WORKSPACE_SNAPSHOT_LIMIT', 1)
+    archive = zip_bytes('def first():\n return 1\n\ndef second():\n return 2\n')
     with ThreadPoolExecutor(max_workers=3) as pool:
-        responses = list(pool.map(lambda _: imported(client, key='concurrent-import'), range(3)))
+        responses = list(pool.map(lambda _: imported(client, key=key, archive=archive), range(3)))
     assert all(response.status_code == 202 for response in responses)
     assert len({response.json()['snapshot_id'] for response in responses}) == 1
     sid = responses[0].json()['snapshot_id']
+    assert calls == [sid]
     payload = {'topic': 'flow', 'observed_code': [citations(client, sid)[0]]}
     with ThreadPoolExecutor(max_workers=3) as pool:
         responses = list(pool.map(lambda _: client.post(f'/api/v1/repos/{sid}/evidence', headers=headers(key='concurrent-card'), json=payload), range(3)))

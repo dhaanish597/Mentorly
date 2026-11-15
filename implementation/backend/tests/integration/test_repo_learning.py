@@ -29,7 +29,7 @@ def context(tmp_path):
     with open_connection(db) as c:
         for name in ('a','b'):
             c.execute('INSERT INTO studio_workspaces(id,token_hash,created_at,expires_at) VALUES (?,?,?,?)',(name,digest_token(name*40),'2026-01-01T00:00:00+00:00','2099-01-01T00:00:00+00:00'))
-    app=FastAPI();app.state.settings=SimpleNamespace(database_path=db);app.include_router(router,prefix='/api/v1')
+    app=FastAPI();app.state.settings=SimpleNamespace(database_target=db,database_path=db);app.include_router(router,prefix='/api/v1')
     return db,TestClient(app)
 
 

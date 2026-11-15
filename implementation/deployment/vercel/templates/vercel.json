@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "public",
+  "regions": ["icn1"],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 300,
+      "includeFiles": "{backend/app/**/*.json,backend/app/**/*.sql,config/branding.json,config/supabase-prod-ca-2021.crt,exec_worker/runner/*.py,exec_worker/worker_app/*.py,exec_worker/vercel_sandbox/*.py,exec_worker/vercel_sandbox/*.sql,exec_worker/vercel_sandbox/native/{_viva_native.so,build-provenance.json,guard.c,build.py},exec_worker/vercel_sandbox/accepted-runtime.json,frontend-index.html}",
+      "excludeFiles": "{public/**,**/tests/**,**/__pycache__/**}"
+    }
+  },
+  "rewrites": [{"source": "/(.*)", "destination": "/api"}],
+  "headers": [
+    {"source": "/(.*)", "headers": [
+      {"key": "X-Content-Type-Options", "value": "nosniff"},
+      {"key": "Referrer-Policy", "value": "no-referrer"}
+    ]}
+  ]
+}

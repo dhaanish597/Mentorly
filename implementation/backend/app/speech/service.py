@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.app.core.config import Settings
@@ -15,6 +16,8 @@ from backend.app.speech.capabilities import session_tts_selection
 from backend.app.speech.gnani_adapter import AssembledTTSSynthesis, GnaniSpeechAdapter
 from backend.app.speech.tts_cache import TTSDiskCache
 from backend.app.speech.ws_streamer import GnaniWebSocketSTTRelay
+from backend.app.db.postgres.runtime import PostgresTarget
+from backend.app.db.postgres.cloud import PostgresTTSCache, count as shared_count
 
 
 _CAPTURE_SUPERSEDED_REASON = "speech_capture_superseded"
@@ -31,8 +34,11 @@ class SpeechService:
     ) -> None:
         configured = settings or Settings(_env_file=None)
         self.settings = configured
-        self.cache = TTSDiskCache(Path(cache_dir), max_bytes=configured.tts_cache_max_bytes,
-                                  max_age_seconds=configured.tts_cache_max_age_seconds)
+        self.cache = (PostgresTTSCache(db_path, max_bytes=configured.tts_cache_max_bytes,
+                                     max_age_seconds=configured.tts_cache_max_age_seconds)
+                      if isinstance(db_path, PostgresTarget) else
+                      TTSDiskCache(Path(cache_dir), max_bytes=configured.tts_cache_max_bytes,
+                                   max_age_seconds=configured.tts_cache_max_age_seconds))
         provider_origin = configured.gnani_base_url.rstrip("/")
         self.adapter = GnaniSpeechAdapter(
             api_key=(api_key if api_key is not None else (
@@ -60,7 +66,7 @@ class SpeechService:
             row = self.gatekeeper._conn.execute(
                 "SELECT * FROM sessions WHERE id=?", (session_id,)
             ).fetchone()
-            if row is None or row["deleted_at"] is not None:
+            if row is None or row["deleted_at"] is not None or datetime.fromisoformat(row['expires_at']) <= datetime.now(timezone.utc):
                 raise SpeechBusyError("Speech session is no longer available.")
             if (
                 row["active_code_version_id"] != revision.code_version_id
@@ -241,6 +247,8 @@ class SpeechService:
         self._tasks = {identity: group for identity, group in self._tasks.items() if identity[0] != session_id}
         self.gatekeeper._session_captures = {sid: tracker for sid, tracker in self.gatekeeper._session_captures.items() if sid != session_id}
         self.gatekeeper._cancelled_turns = {identity for identity in self.gatekeeper._cancelled_turns if identity[0] != session_id}
+        if self.gatekeeper._cloud:
+            return await asyncio.to_thread(shared_count, self.gatekeeper.db_path, kind='speech', owner=session_id)
         return 0
 
     async def aclose(self) -> None:

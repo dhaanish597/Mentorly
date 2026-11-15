@@ -23,6 +23,7 @@ from typing import Any, Literal, Protocol
 import uuid
 
 from .migrations import apply_migrations, open_connection, utc_now_iso
+from .postgres.runtime import PostgresTarget
 
 
 class RepositoryError(Exception):
@@ -290,13 +291,13 @@ def _row_to_turn(row: sqlite3.Row) -> TurnRecord:
 
 
 class SQLiteRepository:
-    """Transactional SQLite repository implementing Phase 0 through Phase 7 contracts."""
+    """Transactional repository preserving SQLite and PostgreSQL storage contracts."""
 
-    def __init__(self, db_path: str | Path) -> None:
-        self._db_path = Path(db_path)
+    def __init__(self, db_path: str | Path | PostgresTarget) -> None:
+        self._db_path = db_path if isinstance(db_path, PostgresTarget) else Path(db_path)
 
     @property
-    def db_path(self) -> Path:
+    def db_path(self) -> Path | PostgresTarget:
         return self._db_path
 
     def initialize(self) -> list[str]:
@@ -1840,8 +1841,9 @@ class SQLiteRepository:
         conn = self._connect()
         try:
             self._require_active_session_row(conn,session_id)
+            ordering = 'created_at DESC,id DESC' if isinstance(self._db_path, PostgresTarget) else 'created_at DESC, rowid DESC'
             rows = conn.execute('SELECT artifact_json FROM evidence_artifacts WHERE session_id=?' +
-                (' AND id=?' if artifact_id else '') + ' ORDER BY created_at DESC, rowid DESC',
+                (' AND id=?' if artifact_id else '') + ' ORDER BY ' + ordering,
                 (session_id,artifact_id) if artifact_id else (session_id,)).fetchall()
             if artifact_id and not rows:
                 raise RepositoryError('Prior artifact not found in this session')
@@ -1867,7 +1869,8 @@ class SQLiteRepository:
         conn = self._connect()
         try:
             self._require_active_session_row(conn,session_id)
-            rows = conn.execute('SELECT id,artifact_json FROM evidence_artifacts WHERE session_id=? ORDER BY created_at DESC,rowid DESC',(session_id,)).fetchall()
+            ordering = 'created_at DESC,id DESC' if isinstance(self._db_path, PostgresTarget) else 'created_at DESC,rowid DESC'
+            rows = conn.execute('SELECT id,artifact_json FROM evidence_artifacts WHERE session_id=? ORDER BY ' + ordering,(session_id,)).fetchall()
             for row in rows:
                 artifact = json.loads(row['artifact_json'])
                 rev = artifact['revision']
@@ -1944,7 +1947,8 @@ class SQLiteRepository:
             turn = conn.execute('SELECT * FROM turns WHERE id=? AND session_id=? AND turn_generation=?',(turn_id,session_id,revision.turn_generation)).fetchone()
             if turn is None or turn['state'] != 'COACH_PROMPT_DELIVERED' or not turn['confirmed_at']:
                 raise RevisionConflictError('Retry requires an unavailable completed confirmed turn')
-            row = conn.execute('SELECT artifact_json FROM evidence_artifacts WHERE session_id=? AND challenge_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1',(session_id,turn['challenge_id'])).fetchone()
+            ordering = 'created_at DESC,id DESC' if isinstance(self._db_path, PostgresTarget) else 'created_at DESC,rowid DESC'
+            row = conn.execute('SELECT artifact_json FROM evidence_artifacts WHERE session_id=? AND challenge_id=? ORDER BY ' + ordering + ' LIMIT 1',(session_id,turn['challenge_id'])).fetchone()
             artifact = json.loads(row['artifact_json']) if row else None
             if not artifact or artifact['actual_observation']['kind'] != 'UNAVAILABLE' or artifact['prediction_status'] != 'NOT_EVALUATED':
                 raise RevisionConflictError('Actually evaluated outcomes cannot be retried')

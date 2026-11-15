@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, PrivateAttr, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -66,9 +66,19 @@ class Settings(BaseSettings):
 
     branding_config_path: Path = Field(default=_DEFAULT_BRANDING_PATH)
     database_path: Path = Field(default=Path("./data/vcc.db"))
+    database_url: SecretStr | None = None
+    database_sslrootcert: Path | None = None
+    database_schema: str = "viva_app"
+    cloud_runtime: bool = False
     cors_origins: str = "http://localhost:5173"
 
     allow_public_custom_code: bool = False
+    execution_runtime: Literal['gvisor', 'vercel_sandbox'] = 'gvisor'
+    public_execution_enabled: bool = False
+    vercel_sandbox_acceptance_path: Path | None = None
+    vercel_sandbox_acceptance_sha256: str = Field(default='', pattern=r'^(?:[a-f0-9]{64})?$')
+    _trusted_worker: object | None = PrivateAttr(default=None)
+    _trusted_worker_configuration: tuple | None = PrivateAttr(default=None)
     isolation_acceptance_file: Path | None = None
     exec_worker_url: str = "http://exec-worker:8001"
     internal_worker_secret: SecretStr | None = None
@@ -104,9 +114,27 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     llm_model: str = ""
     llm_timeout_ms: int = Field(default=1200, ge=100)
+    conversation_timeout_ms: int = Field(default=5000, ge=100, le=10000)
     model_daily_call_limit: int = Field(default=40, ge=1, le=10000)
     model_session_call_limit: int = Field(default=12, ge=1, le=1000)
     model_max_concurrency: int = Field(default=1, ge=1, le=1)
+
+    @property
+    def database_target(self):
+        """Keep credentials inside a secret-safe database target."""
+        if self.database_url is not None:
+            from backend.app.db.postgres.runtime import PostgresTarget
+            dsn = self.database_url.get_secret_value()
+            if self.database_sslrootcert is not None:
+                from psycopg.conninfo import make_conninfo
+                try:
+                    dsn = make_conninfo(dsn, sslrootcert=str(self.database_sslrootcert))
+                except Exception:
+                    raise ValueError('Invalid PostgreSQL connection configuration') from None
+            return PostgresTarget(dsn, schema=self.database_schema)
+        if self.cloud_runtime:
+            raise RuntimeError("Cloud deployment requires a shared PostgreSQL database.")
+        return self.database_path
 
     @field_validator("gnani_api_key", "groq_api_key", "internal_worker_secret", "operations_token", mode="before")
     @classmethod
@@ -118,6 +146,20 @@ class Settings(BaseSettings):
     @classmethod
     def resolve_branding_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else _REPO_ROOT / value
+
+    @field_validator('database_sslrootcert')
+    @classmethod
+    def resolve_database_certificate(cls, value: Path | None) -> Path | None:
+        if value is None or value.is_absolute():
+            return value
+        return _REPO_ROOT / value
+
+    @field_validator('vercel_sandbox_acceptance_path')
+    @classmethod
+    def resolve_sandbox_acceptance(cls, value: Path | None) -> Path | None:
+        if value is None or value.is_absolute():
+            return value
+        return _REPO_ROOT / value
 
     @property
     def cors_origins_list(self) -> list[str]:

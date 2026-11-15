@@ -6,6 +6,7 @@ Mounts both:
 """
 
 from contextlib import asynccontextmanager, closing
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
 import uuid
 
@@ -45,27 +46,28 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
         from backend.app.speech.service import SpeechService
         from backend.app.db.repository import SQLiteRepository
         from backend.app.operations.retention import RetentionService
-        from backend.app.orchestration.worker_client import WorkerClient
-        repository = SQLiteRepository(active_settings.database_path)
+        from backend.app.core.worker_factory import get_worker_client
+        repository = SQLiteRepository(active_settings.database_target)
         repository.initialize()
         from backend.app.repo_learning.service import recover_incomplete
-        recover_incomplete(active_settings.database_path)
+        recover_incomplete(active_settings.database_target)
         from backend.app.db.migrations import open_connection
-        with closing(open_connection(active_settings.database_path)) as db:
+        with closing(open_connection(active_settings.database_target)) as db:
             db.execute('BEGIN IMMEDIATE')
-            db.execute("UPDATE studio_speech_usage SET status='UNCERTAIN' WHERE status='RESERVED'")
+            from backend.app.db.postgres.runtime import PostgresTarget
+            stale_before = ((datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+                            if isinstance(active_settings.database_target, PostgresTarget) else None)
+            if stale_before is None:
+                db.execute("UPDATE studio_speech_usage SET status='UNCERTAIN' WHERE status='RESERVED'")
+            else:
+                db.execute("UPDATE studio_speech_usage SET status='UNCERTAIN' WHERE status='RESERVED' AND created_at<?", (stale_before,))
             from backend.app.studio.model_budget import recover
-            recover(db)
+            recover(db, stale_before=stale_before)
             db.commit()
-        _app.state.speech = SpeechService(db_path=active_settings.database_path, cache_dir=active_settings.tts_cache_dir,
+        _app.state.speech = SpeechService(db_path=active_settings.database_target, cache_dir=active_settings.tts_cache_dir,
             api_key=active_settings.gnani_api_key.get_secret_value() if active_settings.gnani_api_key else None, settings=active_settings)
-        cancellation_worker = None
-        if active_settings.internal_worker_secret:
-            cancellation_worker = WorkerClient(
-                base_url=active_settings.exec_worker_url,
-                internal_worker_secret=active_settings.internal_worker_secret.get_secret_value(),
-                allow_public_custom_code=False, session_repository=repository,
-            )
+        cancellation_worker = get_worker_client(active_settings)
+        _app.state.worker = cancellation_worker
         _app.state.retention = RetentionService(
             repository, _app.state.speech, worker_client=cancellation_worker,
             interval_seconds=active_settings.retention_interval_seconds,
@@ -73,7 +75,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
         )
         _app.state.retention.start()
         from backend.app.studio.retention import StudioRetention
-        studio_retention = StudioRetention(active_settings.database_path, active_settings.retention_interval_seconds)
+        studio_retention = StudioRetention(active_settings.database_target, active_settings.retention_interval_seconds)
         studio_retention.start()
         try:
             yield
@@ -98,7 +100,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
         try:
             if request.url.path.rstrip('/') in {
                 '/api/v1/gamification/dashboard', '/api/v1/gamification/leaderboard',
-                '/api/v1/gamification/quiz/submit',
+                '/api/v1/gamification/quiz/submit', '/api/v1/gamification/learning-paths',
             }:
                 return JSONResponse(status_code=410, content={
                     'detail': 'Legacy personalization retired: use authenticated /api/v1/learning progress and assessments.',
@@ -135,7 +137,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     install_session_security(application, active_settings)
     from backend.app.operations.admission import AdmissionController, AdmissionMiddleware
     admission = AdmissionController(
-        active_settings.database_path, window_seconds=active_settings.request_window_seconds,
+        active_settings.database_target, window_seconds=active_settings.request_window_seconds,
         per_ip_limit=active_settings.per_ip_request_limit,
         per_session_limit=active_settings.per_session_request_limit,
         global_limit=active_settings.global_request_limit,
@@ -163,6 +165,10 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     application.include_router(interviews_router, prefix='/api/v1')
     from backend.app.learning.routes import router as learning_router
     application.include_router(learning_router, prefix='/api/v1')
+    from backend.app.learning_voice.routes import router as module_voice_router
+    application.include_router(module_voice_router, prefix='/api/v1')
+    from backend.app.learning.service import record_interview_completion
+    application.state.interview_completion_hook = record_interview_completion
     application.include_router(meta_router, prefix="/api/v1")
     from backend.app.operations.readiness import router as operations_router
     application.include_router(operations_router, prefix="/api/v1")

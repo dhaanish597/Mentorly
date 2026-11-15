@@ -150,8 +150,12 @@ class _StubWorkerClient:
 def test_full_p3_to_p7_coaching_loop_and_epistemic_boundaries(tmp_path: Path) -> None:
     db_path = tmp_path / "p3_p7.sqlite3"
     repo = SQLiteRepository(db_path)
+    migrations_dir = Path(__file__).resolve().parents[2] / "app" / "db" / "migrations"
+    available_migrations = sorted(
+        (path.name.split("_", 1)[0] for path in migrations_dir.glob("*.sql")), key=int
+    )
     applied = repo.initialize()
-    assert applied == ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013"]
+    assert applied == available_migrations
 
     coach = CoachEngine()
     stub_worker = _StubWorkerClient(return_override=0, fail_verification=True)

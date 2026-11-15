@@ -6,9 +6,9 @@ class StudioBodyLimit:
     async def __call__(self, scope, receive, send):
         path=scope.get('path','')
         is_repo_json=path.startswith('/api/v1/repos/') and path.rstrip('/')!='/api/v1/repos/ingest' and scope.get('method') in ('POST','PUT','PATCH','DELETE')
-        if scope['type']!='http' or not (path.startswith('/api/v1/studio/') or is_repo_json):
+        if scope['type']!='http' or not (path.startswith(('/api/v1/studio/', '/api/v1/learning/', '/api/v1/interviews/', '/api/v1/module-voice/')) or is_repo_json):
             return await self.app(scope,receive,send)
-        limit = 2100000 if scope.get('path','').endswith('/speech/stt') else self.limit
+        limit = 2100000 if (scope.get('path','').endswith('/speech/stt') or path.startswith('/api/v1/module-voice/') and path.endswith('/stt')) else self.limit
         body=bytearray()
         while True:
             message=await receive()

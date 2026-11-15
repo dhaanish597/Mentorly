@@ -16,7 +16,7 @@ router = APIRouter(prefix='/repos', tags=['repository-learning'])
 
 def auth(request, workspace, token):
     authenticate_workspace(request, workspace, token)
-    return request.app.state.settings.database_path
+    return request.app.state.settings.database_target
 
 def scope(workspace: str = Header(..., alias='X-Workspace-Id'), token: str = Header(..., alias='X-Workspace-Token')):
     return workspace, token

@@ -280,7 +280,7 @@ def test_gnani_stt_format_and_ws_commit_contract() -> None:
     )
     init_frame = build_ws_stt_init_frame(req)
     assert init_frame["model"] == "prisma-v3.0"
-    assert init_frame["language_code"] == "ta-IN,en-IN"
+    assert init_frame["language_code"] == "ta-IN"
     assert init_frame["format"] == "codemix"
     assert init_frame["sample_rate"] == 16000
     assert init_frame["x-sample-rate"] == "16000"

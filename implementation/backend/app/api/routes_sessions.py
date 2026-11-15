@@ -169,11 +169,11 @@ def _configured_extractor(settings: Settings | None = None) -> ModelAssistedClai
 
 def _get_repo_and_machine() -> tuple[SQLiteRepository, CoordinatorStateMachine]:
     settings = get_settings()
-    repo = SQLiteRepository(settings.database_path)
+    repo = SQLiteRepository(settings.database_target)
     repo.initialize()
     coach = _configured_coach()
     worker = None
-    if settings.allow_public_custom_code and settings.internal_worker_secret:
+    if settings.allow_public_custom_code and (settings.execution_runtime == 'vercel_sandbox' or settings.internal_worker_secret):
         import asyncio
         from backend.app.core.execution_readiness import probe_execution_readiness
         # Execution routes are synchronous threadpool routes. Async speech routes do
@@ -185,9 +185,8 @@ def _get_repo_and_machine() -> tuple[SQLiteRepository, CoordinatorStateMachine]:
         else:
             ready = False
         if ready:
-            worker = WorkerClient(base_url=settings.exec_worker_url,
-                internal_worker_secret=settings.internal_worker_secret.get_secret_value(),
-                allow_public_custom_code=True, session_repository=repo)
+            from backend.app.core.worker_factory import get_worker_client
+            worker = get_worker_client(settings)
     machine = CoordinatorStateMachine(repo, worker_client=worker, coach_engine=coach)
     return repo, machine
 
@@ -541,18 +540,23 @@ def playback_ack_route(
 
 @router.post("/sessions/{session_id}/cancel", response_model=CancelResponse)
 async def cancel_route(session_id: UUID, req: CancelRequest, request: Request) -> CancelResponse:
-    repo, _machine = _get_repo_and_machine()
+    repo, _machine = await asyncio.to_thread(_get_repo_and_machine)
     try:
-        rev = _machine.build_revision_ref(str(session_id))
+        settings = request.app.state.settings
+        if settings.execution_runtime == 'vercel_sandbox' or settings.internal_worker_secret:
+            from backend.app.core.worker_factory import get_worker_client
+            cancellation_worker = await asyncio.to_thread(get_worker_client, settings)
+            _machine = CoordinatorStateMachine(repo, worker_client=cancellation_worker)
+        rev = await asyncio.to_thread(_machine.build_revision_ref, str(session_id))
         if req.scope == "TURN":
             request.app.state.speech.cancel(str(session_id), rev.turn_generation)
         else:
             request.app.state.speech.interrupt(str(session_id), rev.turn_generation)
-        active_turn = repo.get_active_turn(str(session_id))
-        cancellation = _machine.cancel_active_work(str(session_id),req.job_id) if (req.job_id or req.turn_id or req.scope == 'TURN') else {"cancelled_job_ids":[],"unconfirmed_job_ids":[]}
+        active_turn = await asyncio.to_thread(repo.get_active_turn, str(session_id))
+        cancellation = await asyncio.to_thread(_machine.cancel_active_work,str(session_id),req.job_id) if (req.job_id or req.turn_id or req.scope == 'TURN') else {"cancelled_job_ids":[],"unconfirmed_job_ids":[]}
         cancelled_turns: list[UUID] = [UUID(active_turn.id)] if active_turn and active_turn.state != 'COACH_PROMPT_DELIVERED' and req.scope == 'TURN' and req.turn_id is None else []
         if req.turn_id is not None and req.scope == "TURN":
-            repo.update_turn(
+            await asyncio.to_thread(repo.update_turn,
                 str(session_id), str(req.turn_id), state=TurnState.CANCELLED.value
             )
             cancelled_turns.append(req.turn_id)
@@ -598,10 +602,9 @@ async def delete_session_route(session_id: UUID, request: Request) -> DeleteSess
     try:
         rev = _machine.build_revision_ref(str(session_id))
         settings = request.app.state.settings
-        if settings.internal_worker_secret:
-            cancellation_worker = WorkerClient(base_url=settings.exec_worker_url,
-                internal_worker_secret=settings.internal_worker_secret.get_secret_value(),
-                allow_public_custom_code=False, session_repository=repo)
+        if settings.execution_runtime == 'vercel_sandbox' or settings.internal_worker_secret:
+            from backend.app.core.worker_factory import get_worker_client
+            cancellation_worker = get_worker_client(settings)
             _machine = CoordinatorStateMachine(repo, worker_client=cancellation_worker)
         cancellation = await asyncio.to_thread(_machine.cancel_active_work, str(session_id), tombstone=True)
         pending_audio = await request.app.state.speech.cancel_session(str(session_id), rev.turn_generation)
@@ -790,7 +793,7 @@ async def browser_speech_ws(websocket: WebSocket, session_id: UUID):
         await websocket.close(code=4403)
         return
     await websocket.accept()
-    repo = SQLiteRepository(settings.database_path)
+    repo = SQLiteRepository(settings.database_target)
     repo.initialize()
     machine = CoordinatorStateMachine(repo)
     rev = None
@@ -816,6 +819,12 @@ async def browser_speech_ws(websocket: WebSocket, session_id: UUID):
                 raise RevisionConflictError('A current hidden challenge is required.')
         turn, attempt = repo.create_or_reuse_turn(session_id=str(session_id),code_version_id=rev.code_version_id,
             challenge_id=str(cid) if cid is not None else None,transport_mode='VOICE',state=TurnState.TRANSCRIBING_AND_PARSING.value)
+        capture_rev = machine.build_revision_ref(str(session_id))
+        if (capture_rev.code_version_id != rev.code_version_id
+                or capture_rev.spec_version != rev.spec_version
+                or capture_rev.turn_generation != turn.turn_generation):
+            raise RevisionConflictError('Capture revision was superseded.')
+        rev = capture_rev
         async def frames():
             total = 0
             while True:
@@ -834,16 +843,14 @@ async def browser_speech_ws(websocket: WebSocket, session_id: UUID):
                     break
         result = await websocket.app.state.speech.transcribe_frames(str(session_id),frames(),
             first.get('language_mode','en-IN'),rev,attempt)
-        active_rev = machine.build_revision_ref(str(session_id))
-        if active_rev.code_version_id != rev.code_version_id or active_rev.spec_version != rev.spec_version:
-            raise RevisionConflictError('Revision mismatch against active session state')
-        rev = active_rev
+        machine.assert_revision_matches(str(session_id), rev)
         current = repo.get_turn(str(session_id),turn.id)
         if not current or current.latest_capture_attempt_id != attempt or current.state in ('CANCELLED','SUPERSEDED'):
             raise RevisionConflictError('Capture superseded')
         from starlette.concurrency import run_in_threadpool
         claim = await run_in_threadpool(_configured_extractor(settings).extract, result.normalized_transcript,challenge_id=cid,target_spec_version=rev.spec_version)
         claim = claim.model_copy(update={'provider_confidence':result.provider_confidence})
+        machine.assert_revision_matches(str(session_id), rev)
         repo.update_turn(str(session_id),turn.id,state=TurnState.AWAITING_CLAIM_CONFIRMATION.value,
             raw_transcript=result.raw_transcript,normalized_transcript=result.normalized_transcript,claim_json=claim.model_dump_json(),expected_capture_attempt_id=attempt)
         await websocket.send_json({'turn_id':turn.id,'revision':rev.model_dump(mode='json'),

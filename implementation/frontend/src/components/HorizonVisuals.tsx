@@ -52,7 +52,7 @@ export function MentorPortrait({
   alt?: string;
 }) {
   const teacherConfig = typeof teacher === 'string' ? (TEACHERS[teacher] ?? TEACHERS.astra) : teacher;
-  const defaultAlt = teacherConfig.id === 'astra' ? 'Your VIVA mentor' : `Your mentor: ${teacherConfig.name} (${teacherConfig.subject})`;
+  const defaultAlt = teacherConfig.id === 'astra' ? `Your ${FALLBACK_BRANDING.productName} mentor` : `Your mentor: ${teacherConfig.name} (${teacherConfig.subject})`;
   return (
     <div className={`mentor-portrait mentor-${state} ${className}`} data-teacher={teacherConfig.id}>
       <img

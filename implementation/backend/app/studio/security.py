@@ -12,7 +12,7 @@ def digest_token(token: str) -> str:
 
 
 def authenticate_workspace(request: Request, workspace_id: str, token: str) -> None:
-    with closing(open_connection(request.app.state.settings.database_path)) as conn:
+    with closing(open_connection(request.app.state.settings.database_target)) as conn:
         row = conn.execute('SELECT token_hash,expires_at,deleted_at FROM studio_workspaces WHERE id=?', (workspace_id,)).fetchone()
     expected = row['token_hash'] if row else '0' * 64
     valid = hmac.compare_digest(expected, digest_token(token))

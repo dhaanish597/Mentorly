@@ -1,4 +1,5 @@
 import type { components } from './types/openapi';
+import { readApiError } from './services/apiErrors';
 
 export type Scenario = { id: string; title: string; mode: string; version: string };
 export type Workspace = { id: string; token: string };
@@ -20,7 +21,7 @@ export async function studioRequest<T>(path: string, options: { method?: string;
   const body = options.body instanceof FormData ? options.body : options.body === undefined ? undefined : JSON.stringify(options.body);
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const res = await fetch(`/api/v1${path}`, { method, headers, body, signal: options.signal });
-  if (!res.ok) { const detail = await res.json().catch(() => null); throw new StudioError(res.status, typeof detail?.detail === 'string' ? detail.detail : detail?.message ?? `Request failed (${res.status})`); }
+  if (!res.ok) throw new StudioError(res.status, await readApiError(res));
   return res.status === 204 ? undefined as T : await res.json() as T;
 }
 const KEY = 'viva-studio-tab-v1';

@@ -368,7 +368,7 @@ class AudioEvent(_StrictDTO):
 class SpeechCapacityStatus(_StrictDTO):
     """Single-dispatcher speech capacity and durable usage ledger snapshot (§8.6)."""
 
-    deployment_topology: Literal["SINGLE_PROCESS_LOCAL_SEMAPHORE"] = (
+    deployment_topology: Literal["SINGLE_PROCESS_LOCAL_SEMAPHORE", "DISTRIBUTED_POSTGRES_LEASE"] = (
         "SINGLE_PROCESS_LOCAL_SEMAPHORE"
     )
     max_concurrency: StrictInt = Field(default=1, ge=1, le=1)

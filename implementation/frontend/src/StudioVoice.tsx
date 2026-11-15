@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { AudioRecorder } from './services/audioRecorder';
 import { studioRequest, type StudioSession } from './studioApi';
+import { loadAudioPreferences, loadSpeechPreferences, subscribeAudioPreferences, subscribeSpeechPreferences, shouldRequestVoice, DEFAULT_SPEECH_PREFERENCES } from './voice/preferences';
+import { resolveSpeechSelection } from './voice/languages';
 
 export type StudioVoiceEvent = { sequence: number; type: string; payload?: { epoch?: number; text?: string; question?: string } };
 export type StudioVoiceProps = {
@@ -12,6 +14,8 @@ export type StudioVoiceProps = {
   disabled?: boolean;
   /** Availability gate, not permission or speech consent. */
   voiceEnabled?: boolean;
+  /** True only after media playback starts, never while fetching/preparing speech. */
+  onPlaybackStateChange?: (playing: boolean) => void;
 };
 type Phase = 'idle' | 'requesting-permission' | 'recording' | 'transcribing' | 'preparing-speech' | 'speaking' | 'error';
 type SpeechResult = { epoch: number; normalized_transcript?: unknown; audio_base64?: unknown };
@@ -19,6 +23,9 @@ const IDLE = 'Idle. Talk through your explanation, or type it below.';
 const MAX_CAPTURE_BYTES = 1_048_576;
 const BASE64_CHUNK_SIZE = 8192;
 const MAX_RECORDING_DURATION_MS = 25_000;
+const MAX_REPLAY_ENTRIES = 12;
+const MAX_REPLAY_BYTES = 8 * 1024 * 1024;
+type CachedAudio = {readonly url: string; readonly bytes: number};
 
 function encodeRecording(bytes: Uint8Array): string {
   if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MAX_CAPTURE_BYTES) throw new Error('Invalid recording');
@@ -29,9 +36,9 @@ function encodeRecording(bytes: Uint8Array): string {
   return btoa(value);
 }
 function decodeCoachAudio(value: unknown): Blob {
-  if (typeof value !== 'string' || !value.length) throw new Error('Invalid coach audio');
+  if (typeof value !== 'string' || !value.length || value.length > Math.ceil(MAX_REPLAY_BYTES / 3) * 4) throw new Error('Invalid or oversized coach audio');
   const bytes = Uint8Array.from(atob(value), character => character.charCodeAt(0));
-  if (!bytes.length) throw new Error('Empty coach audio');
+  if (!bytes.length || bytes.length > MAX_REPLAY_BYTES) throw new Error('Empty or oversized coach audio');
   return new Blob([bytes], { type: 'audio/wav' });
 }
 function latestCoach(events: StudioVoiceEvent[], epoch: number): StudioVoiceEvent | null {
@@ -45,7 +52,13 @@ function latestCoach(events: StudioVoiceEvent[], epoch: number): StudioVoiceEven
   }, null);
 }
 
-export function StudioVoice({ session, epoch, events, onTranscript, disabled = false, voiceEnabled = true }: StudioVoiceProps) {
+export function StudioVoice({ session, epoch, events, onTranscript, disabled = false, voiceEnabled = true, onPlaybackStateChange }: StudioVoiceProps) {
+  const [audioPreferences, setAudioPreferences] = useState(loadAudioPreferences);
+  const [speechPreferences, setSpeechPreferences] = useState(loadSpeechPreferences);
+  const audioPreferencesRef = useRef(audioPreferences);
+  const speechPreferencesRef = useRef(speechPreferences);
+  const playbackCallback = useRef(onPlaybackStateChange);
+  const isPlaying = useRef(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [status, setStatus] = useState(IDLE);
   const [micConsent, setMicConsent] = useState(false);
@@ -58,7 +71,9 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
   const mounted = useRef(false);
   const currentPhase = useRef<Phase>('idle');
   const audio = useRef<HTMLAudioElement | null>(null);
-  const cache = useRef<Readonly<Record<string, string>>>({});
+  const cache = useRef<Readonly<Record<string, CachedAudio>>>({});
+  const activeCacheKey = useRef<string | null>(null);
+  const failedReplayKey = useRef<string | null>(null);
   const speechConsent = useRef(false);
   const observedSequence = useRef(-1);
   const initializedSession = useRef<string | null>(null);
@@ -66,13 +81,16 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
   const sessionHistory = useRef(events);
   const queuedCoach = useRef<StudioVoiceEvent | null>(null);
   const latest = latestCoach(events, epoch);
-  const available = !disabled && voiceEnabled;
+  const available = !disabled && voiceEnabled && !audioPreferences.textOnly;
+  const speechAvailable = available && shouldRequestVoice(audioPreferences);
   const active = phase !== 'idle' && phase !== 'error';
-  const cacheKey = useCallback((event: StudioVoiceEvent) => JSON.stringify([session.id, epoch, event.sequence]), [session.id, epoch]);
+  const cacheKey = useCallback((event: StudioVoiceEvent) => JSON.stringify([session.id, epoch, event.sequence, speechPreferences.spokenLanguage, speechPreferences.voice]), [session.id, epoch, speechPreferences.spokenLanguage, speechPreferences.voice]);
   const isCurrent = useCallback((local: number) => mounted.current && local === generation.current, []);
 
   const show = useCallback((next: Phase, message: string) => {
     currentPhase.current = next;
+    const playing = next === 'speaking';
+    if (playing !== isPlaying.current) { isPlaying.current = playing; playbackCallback.current?.(playing); }
     setPhase(next);
     setStatus(message);
   }, []);
@@ -82,6 +100,8 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
   }, []);
   const detachActive = useCallback(() => {
     generation.current++;
+    if (isPlaying.current) { isPlaying.current = false; playbackCallback.current?.(false); }
+    activeCacheKey.current = null;
     clearCaptureDeadline();
     pending.current?.abort();
     pending.current = null;
@@ -108,12 +128,40 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
     const old = detachActive();
     if (old) void dispose(old, generation.current);
   }, [detachActive, dispose]);
+  const evictAudio = useCallback((key: string) => {
+    const entry = cache.current[key];
+    if (!entry) return;
+    URL.revokeObjectURL(entry.url);
+    cache.current = Object.fromEntries(Object.entries(cache.current).filter(([existing]) => existing !== key));
+  }, []);
+  const clearAudioCache = useCallback(() => {
+    Object.values(cache.current).forEach(entry => URL.revokeObjectURL(entry.url));
+    cache.current = {};
+    failedReplayKey.current = null;
+  }, []);
   function cancel() {
     invalidate();
     show('idle', 'Idle. Voice stopped. Text remains available.');
   }
 
   useLayoutEffect(() => { transcriptCallback.current = onTranscript; }, [onTranscript]);
+  useLayoutEffect(() => { playbackCallback.current = onPlaybackStateChange; }, [onPlaybackStateChange]);
+  useLayoutEffect(() => subscribeAudioPreferences(next => {
+    audioPreferencesRef.current = next;
+    setAudioPreferences(next);
+    if (audio.current) { audio.current.volume = next.volume; audio.current.muted = next.muted; audio.current.playbackRate = next.speed; }
+    if (next.textOnly || (!shouldRequestVoice(next) && ['preparing-speech','speaking'].includes(currentPhase.current))) {
+      invalidate(); show('idle','Idle. Voice disabled by your preferences. Text remains available.');
+    }
+  }), [invalidate, show]);
+  useLayoutEffect(() => subscribeSpeechPreferences(next => {
+    const prior = speechPreferencesRef.current;
+    speechPreferencesRef.current = next;
+    setSpeechPreferences(next);
+    if (JSON.stringify(resolveSpeechSelection(prior)) !== JSON.stringify(resolveSpeechSelection(next))) {
+      invalidate(); clearAudioCache(); show('idle','Idle. Speech preferences changed. Start voice again when ready.');
+    }
+  }), [invalidate, clearAudioCache, show]);
   useLayoutEffect(() => { sessionHistory.current = events; }, [events]);
 
   // Consent is scoped to a session capability, never inferred from a prop or persisted.
@@ -135,12 +183,11 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
     return () => {
       mounted.current = false;
       invalidate();
-      Object.values(cache.current).forEach(url => URL.revokeObjectURL(url));
-      cache.current = {};
+      clearAudioCache();
     };
     // Initial session history is a baseline; epoch transitions retain the observed
     // sequence so unseen replies remain eligible after old audio is invalidated.
-  }, [session.id, session.token, epoch, invalidate, show]);
+  }, [session.id, session.token, epoch, invalidate, clearAudioCache, show]);
   useLayoutEffect(() => {
     if (!available) {
       invalidate();
@@ -198,7 +245,7 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
       pending.current = controller;
       const result = await studioRequest<SpeechResult>(`/studio/sessions/${encodeURIComponent(session.id)}/speech/stt`, {
         method: 'POST', token: session.token, signal: controller.signal,
-        body: { epoch, audio_base64: encodeRecording(captured.wavBytes), language_mode: 'en-IN' },
+        body: { epoch, audio_base64: encodeRecording(captured.wavBytes), language_mode: resolveSpeechSelection(speechPreferencesRef.current).language_mode },
       });
       if (!isCurrent(local)) return;
       if (!result) throw new Error('Invalid speech response');
@@ -218,49 +265,63 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
     }
   }
 
-  const playCached = useCallback(async (url: string, local: number) => {
+  const playCached = useCallback(async (url: string, local: number, key: string) => {
     const player = audio.current;
-    if (!isCurrent(local) || !player) return;
+    if (!isCurrent(local) || !player || !shouldRequestVoice(audioPreferencesRef.current)) return;
+    activeCacheKey.current = key;
+    player.volume = audioPreferencesRef.current.volume;
+    player.muted = audioPreferencesRef.current.muted;
+    player.playbackRate = audioPreferencesRef.current.speed;
     player.src = url;
     player.currentTime = 0;
     try {
       await player.play();
       if (isCurrent(local)) show('speaking', 'Speaking. Listen to the Gnani coach, or stop voice.');
-    } catch {
-      if (isCurrent(local)) show('error', 'Error. Playback was blocked or unavailable. Choose Replay coach to listen; coach text remains available.');
+    } catch (error) {
+      if (!isCurrent(local)) return;
+      if (!(error instanceof DOMException && error.name === 'NotAllowedError')) evictAudio(key);
+      failedReplayKey.current = key;
+      show('error', 'Error. Playback was blocked or unavailable. Choose Replay coach to listen; coach text remains available.');
     }
-  }, [isCurrent, show]);
+  }, [isCurrent, show, evictAudio]);
 
   const speak = useCallback(async (event: StudioVoiceEvent) => {
-    if (!available || !speechConsent.current) return;
+    if (!speechAvailable || !speechConsent.current) return;
     invalidate();
     const local = generation.current;
     show('preparing-speech', 'Preparing Gnani coach audio…');
     const key = cacheKey(event);
     try {
-      let url = cache.current[key];
+      let url = cache.current[key]?.url;
       if (!url) {
         const controller = new AbortController();
         pending.current = controller;
         const result = await studioRequest<SpeechResult>(`/studio/sessions/${encodeURIComponent(session.id)}/speech/tts`, {
           method: 'POST', token: session.token, signal: controller.signal,
-          body: { epoch, event_sequence: event.sequence },
+          body: { epoch, event_sequence: event.sequence,
+            ...(speechPreferencesRef.current.spokenLanguage !== DEFAULT_SPEECH_PREFERENCES.spokenLanguage || speechPreferencesRef.current.voice !== DEFAULT_SPEECH_PREFERENCES.voice
+              ? {language:speechPreferencesRef.current.spokenLanguage,voice:speechPreferencesRef.current.voice} : {}) },
+
         });
         if (!isCurrent(local)) return;
         if (!result || result.epoch !== epoch) throw new Error('Stale coach audio');
-        url = URL.createObjectURL(decodeCoachAudio(result.audio_base64));
-        cache.current = { ...cache.current, [key]: url };
+        const blob = decodeCoachAudio(result.audio_base64);
+        while (Object.keys(cache.current).length >= MAX_REPLAY_ENTRIES || Object.values(cache.current).reduce((sum,entry)=>sum+entry.bytes,0) + blob.size > MAX_REPLAY_BYTES) {
+          evictAudio(Object.keys(cache.current)[0]);
+        }
+        url = URL.createObjectURL(blob);
+        cache.current = { ...cache.current, [key]: {url,bytes:blob.size} };
       }
-      await playCached(url, local);
+      await playCached(url, local, key);
     } catch {
       if (isCurrent(local)) show('error', 'Error. Gnani coach audio unavailable. Read the coach text, or try Play coach again.');
     } finally {
       if (isCurrent(local)) pending.current = null;
     }
-  }, [available, invalidate, show, cacheKey, session.id, session.token, epoch, isCurrent, playCached]);
+  }, [speechAvailable, invalidate, show, cacheKey, session.id, session.token, epoch, isCurrent, playCached, evictAudio]);
 
   function enableCoachSpeech() {
-    if (!available || (currentPhase.current !== 'idle' && currentPhase.current !== 'error')) return;
+    if (!speechAvailable || (currentPhase.current !== 'idle' && currentPhase.current !== 'error')) return;
     speechConsent.current = true;
     setSpeechEnabled(true);
     queuedCoach.current = null;
@@ -273,19 +334,19 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
   useEffect(() => {
     if (latest && latest.sequence > observedSequence.current) {
       observedSequence.current = latest.sequence;
-      if (speechConsent.current && available) queuedCoach.current = latest;
+      if (speechConsent.current && speechAvailable) queuedCoach.current = latest;
     }
     const next = queuedCoach.current;
-    if (!next || !speechConsent.current || !available) return;
+    if (!next || !speechConsent.current || !speechAvailable) return;
     if (['requesting-permission', 'recording', 'transcribing', 'preparing-speech'].includes(currentPhase.current)) return;
     queuedCoach.current = null;
     void speak(next);
     // Repeated snapshot identities cannot trigger replay: the observed sequence
     // guards fresh playback, while the stable lifecycle callbacks preserve context.
-  }, [latest, phase, speechEnabled, available, speak]);
+  }, [latest, phase, speechEnabled, speechAvailable, speak]);
 
   const micLabel = phase === 'recording' ? 'Stop and transcribe' : micConsent ? 'Talk' : 'Enable voice and talk';
-  const coachLabel = !speechEnabled ? 'Enable coach speech' : latest && cache.current[cacheKey(latest)] ? 'Replay coach' : 'Play coach';
+  const coachLabel = !speechEnabled ? 'Enable coach speech' : latest && (cache.current[cacheKey(latest)] || failedReplayKey.current === cacheKey(latest)) ? 'Replay coach' : 'Play coach';
   return <section className="studio-voice" aria-label="Gnani voice">
     <p id={consentId}>Choosing Enable voice and talk or Enable coach speech gives consent to send audio or coach text to Gnani. Speech enables new coach replies to play automatically. Text remains available.</p>
     <div className="studio-actions" aria-label="Voice controls">
@@ -295,14 +356,19 @@ export function StudioVoice({ session, epoch, events, onTranscript, disabled = f
         {micLabel}
       </button>
       {active ? <button type="button" onClick={cancel}>{phase === 'speaking' ? 'Stop voice' : 'Cancel voice'}</button>
-        : <button type="button" aria-describedby={consentId} disabled={!available || (speechEnabled && !latest)} onClick={enableCoachSpeech}>{coachLabel}</button>}
+        : <button type="button" aria-describedby={consentId} disabled={!speechAvailable || (speechEnabled && !latest)} onClick={enableCoachSpeech}>{coachLabel}</button>}
     </div>
     <p role="status" aria-live="polite" aria-atomic="true" data-voice-state={phase}>{status}</p>
     {/* eslint-disable-next-line jsx-a11y/media-has-caption -- Audio-only TTS duplicates the parent's visible exact coach text/question (WCAG 1.2.1 text alternative); no video or fake caption track. */}
     <audio ref={audio} hidden preload="none" onEnded={() => {
       if (currentPhase.current === 'speaking') show('idle', 'Idle. Coach audio finished. Replay is available without another Gnani request.');
     }} onError={() => {
-      if (currentPhase.current === 'speaking' || currentPhase.current === 'preparing-speech') show('error', 'Error. Coach audio playback unavailable. Read the coach text, or choose Replay coach.');
+      if (currentPhase.current === 'speaking' || currentPhase.current === 'preparing-speech') {
+        const key = activeCacheKey.current;
+        if (key) { evictAudio(key); failedReplayKey.current = key; }
+        invalidate();
+        show('error', 'Error. Coach audio playback unavailable. Read the coach text, or choose Replay coach.');
+      }
     }} />
   </section>;
 }

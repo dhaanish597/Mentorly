@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { StudioSession } from './studioApi';
 import { StudioVoice } from './StudioVoice';
 import { MentorPortrait } from './components/HorizonVisuals';
@@ -48,6 +48,7 @@ function nextStep(snapshot: Snapshot | null, scenario: ScenarioView | null): { a
 }
 
 export function StudioMentor({ session, snapshot, scenario, reply, draft, onDraft, kind, onKind, locked, actionDisabled, dirty, assumptionsPending, busy, turnInFlight, onSend, onCoach, onInterrupt, onTeaching, correcting, onCancelCorrection }: Props) {
+  const [voicePlaying, setVoicePlaying] = useState(false);
   const completed = snapshot?.state === 'completed';
   const assessment = snapshot?.posture === 'assessment';
   const next = nextStep(snapshot, scenario);
@@ -55,7 +56,7 @@ export function StudioMentor({ session, snapshot, scenario, reply, draft, onDraf
     : [{ label: 'Understand and explore', actions: ['clarify', 'hint', 'options', 'sketch', 'explain'] }, { label: 'Practice your reasoning', actions: ['teachback', 'transfer'] }, { label: 'Move through the case', actions: ['rewind', 'skip', 'advance', 'finish'] }];
   return <aside className="studio-mentor studio-card" aria-label="Mentor conversation">
     <header className="studio-mentor-header">
-      <MentorPortrait state={busy ? 'thinking' : 'idle'} teacher="nexus" className="studio-mentor-portrait" eager />
+      <MentorPortrait state={voicePlaying ? 'speaking' : busy ? 'thinking' : 'idle'} teacher="nexus" className="studio-mentor-portrait" eager />
       <div><h2>Nexus</h2><p role="status">System Design Teacher · {busy ? 'Working with your reasoning…' : completed ? 'Practice complete' : 'Here to help you think'}</p></div>
     </header>
     <div className="studio-conversation" role="log" aria-label="Conversation">
@@ -64,7 +65,7 @@ export function StudioMentor({ session, snapshot, scenario, reply, draft, onDraf
       {reply && <div className="studio-mentor-bubble" role="status"><strong>Mentor</strong><p>{reply}</p></div>}
     </div>
     <div className="studio-composer">
-      <StudioVoice session={session} epoch={snapshot?.epoch ?? 1} events={snapshot?.events ?? []} disabled={locked} onTranscript={text => onDraft(previous => previous ? `${previous}\n${text}` : text)} />
+      <StudioVoice session={session} epoch={snapshot?.epoch ?? 1} events={snapshot?.events ?? []} disabled={locked} onPlaybackStateChange={setVoicePlaying} onTranscript={text => onDraft(previous => previous ? `${previous}\n${text}` : text)} />
       <label htmlFor="studio-explanation">Your explanation</label>
       <textarea id="studio-explanation" disabled={locked} rows={3} value={draft} placeholder="Talk it through, or type your thinking…" onChange={e => onDraft(e.target.value)} onKeyDown={event => {
         if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {

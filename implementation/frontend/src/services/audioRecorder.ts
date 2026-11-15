@@ -12,6 +12,7 @@
  */
 
 import type { InteractionMode } from '../types/api';
+import { loadInputDeviceId } from '../voice/inputDevices';
 import {
   StatefulResampler,
   TARGET_SAMPLE_RATE_HZ,
@@ -233,6 +234,7 @@ export class AudioRecorder {
       );
     }
 
+    const inputDeviceId = loadInputDeviceId();
     let stream: MediaStream;
     try {
       stream = await mediaDevices.getUserMedia({
@@ -241,6 +243,7 @@ export class AudioRecorder {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          ...(inputDeviceId ? { deviceId: { exact: inputDeviceId } } : {}),
           ...(options.constraints ?? {}),
         },
         video: false,
@@ -258,7 +261,7 @@ export class AudioRecorder {
       this.lifecycleState = 'DEVICE_UNAVAILABLE_TEXT_FALLBACK';
       throw new MicrophoneCaptureError(
         'MIC_DEVICE_UNAVAILABLE',
-        `Unable to open microphone (${errName}); switched to typed fallback.`,
+        `Unable to open microphone (${errName}); switched to typed fallback. Choose System default in Microphone input settings if the selected device is unavailable.`,
         this.lifecycleState,
       );
     }

@@ -11,6 +11,8 @@ import sqlite3
 import os
 import uuid
 
+from .postgres.runtime import PostgresTarget, PostgresConnection
+
 _MIGRATION_FILENAME_RE = re.compile(r"^(\d+)_([a-zA-Z0-9_]+)\.sql$")
 
 
@@ -30,8 +32,10 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def open_connection(db_path: str | Path) -> sqlite3.Connection:
+def open_connection(db_path: str | Path | PostgresTarget) -> sqlite3.Connection | PostgresConnection:
     """Open a SQLite connection configured with WAL mode and foreign key enforcement."""
+    if isinstance(db_path, PostgresTarget):
+        return PostgresConnection(db_path)
     target = str(db_path)
     if target != ":memory:" and not target.startswith("file:"):
         Path(target).parent.mkdir(parents=True, exist_ok=True)
@@ -99,10 +103,13 @@ def _discover_migrations(migrations_dir: Path) -> list[tuple[str, str, Path]]:
 
 
 def apply_migrations(
-    db_path: str | Path,
+    db_path: str | Path | PostgresTarget,
     migrations_dir: str | Path | None = None,
 ) -> list[str]:
     """Apply all pending SQL migrations atomically and return newly applied versions."""
+    if isinstance(db_path, PostgresTarget):
+        from .postgres.runtime import apply_runtime_migrations
+        return apply_runtime_migrations(db_path, migrations_dir)
     resolved_dir = (
         Path(migrations_dir)
         if migrations_dir is not None
@@ -182,7 +189,7 @@ def apply_migrations(
     return applied_now
 
 
-def get_applied_migrations(db_path: str | Path) -> list[AppliedMigration]:
+def get_applied_migrations(db_path: str | Path | PostgresTarget) -> list[AppliedMigration]:
     """Return all recorded migrations ordered by version."""
     conn = open_connection(db_path)
     try:

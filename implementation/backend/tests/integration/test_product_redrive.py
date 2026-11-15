@@ -27,7 +27,7 @@ def context(tmp_path):
     }
     snap = service.create(db, 'a', 'zip_upload', files, {'total': 3, 'skipped': 0})
     app = FastAPI()
-    app.state.settings = SimpleNamespace(database_path=db)
+    app.state.settings = SimpleNamespace(database_target=db,database_path=db)
     app.include_router(router)
     return db, TestClient(app), snap['snapshot_id']
 
@@ -68,6 +68,8 @@ def test_zero_knowledge_plan_starts_with_grounded_fundamentals(context):
     main = next(step for step in plan['steps'] if step['phase'] == 'components' and step['citations'][0]['path'] == 'main.py')
     assert plan['steps'].index(helper) < plan['steps'].index(main)
     assert 'runtime' in ' '.join(plan['limitations']).lower()
+    testing = next(step for step in plan['steps'] if step['concept'] == 'test_source')
+    assert 'assert' in service.validate_citation(db, 'a', sid, testing['citations'][0])
 
 
 def test_create_resumes_and_get_requires_workspace_capability(context):
@@ -184,12 +186,138 @@ def test_deleted_workspace_and_snapshot_cascade_learning_records(context):
             assert conn.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
 
 
+def test_actual_workspace_delete_purges_private_learning_attempts(context):
+    from backend.app.studio.routes import router as studio_router
+    db, client, _ = context
+    client.app.include_router(studio_router, prefix='/api/v1')
+    plan = start(context)
+    submit(context, plan, 'private explanation')
+    response = client.delete('/api/v1/studio/workspaces/a',
+                             headers={'Authorization': 'Bearer ' + 'a' * 40, 'X-Idempotency-Key': 'delete-redrive-workspace'})
+    assert response.status_code == 200, response.text
+    assert client.get(f'/api/v1/repos/learning-plans/{plan["plan_id"]}', headers=headers()).status_code == 401
+    with closing(open_connection(db)) as conn:
+        for table in ('repo_snapshots', 'repo_learning_plans', 'repo_learning_attempts', 'repo_learning_evidence_events'):
+            assert conn.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
+
+
 def test_minimal_source_preserves_unknown_runtime_and_omits_missing_topics(context):
     db, client, _ = context
     snap = service.create(db, 'a', 'zip_upload', {'module.py': 'def value():\n    return 1\n'}, {'total': 1, 'skipped': 0})
     plan = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers()).json()
     assert {step['phase'] for step in plan['steps']} == {'fundamentals', 'components'}
     assert all('not_established' == step['mastery'] for step in plan['steps'])
+
+
+def test_same_line_component_spans_and_comment_entrypoints_are_not_fabricated(context):
+    db, client, _ = context
+    snap = service.create(db, 'a', 'zip_upload', {
+        'widget.ts': '/* function main(){ run(); } */\nexport class Widget { show(){ return 1; } }\n',
+    }, {'total': 1, 'skipped': 0})
+    response = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers())
+    assert response.status_code == 200, response.text
+    plan = response.json()
+    assert not any(step['phase'] in ('entrypoint', 'flows') for step in plan['steps'])
+    assert any(step['phase'] == 'components' for step in plan['steps'])
+    for step in plan['steps']:
+        for citation in step['citations']:
+            assert service.validate_citation(db, 'a', snap['snapshot_id'], citation)
+
+
+def test_import_lesson_references_import_span_not_first_chunk(context):
+    db, client, _ = context
+    snap = service.create(db, 'a', 'zip_upload', {'main.py': 'def run():\n    return 1\n\nimport helper\n\nif __name__ == "__main__":\n    run()\n'}, {'total': 1, 'skipped': 0})
+    plan = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers()).json()
+    lesson = next(step for step in plan['steps'] if step['concept'] == 'import')
+    assert 'import helper' in service.validate_citation(db, 'a', snap['snapshot_id'], lesson['citations'][0])
+
+
+def test_deep_import_chain_is_bounded_without_python_recursion():
+    files = [{'path': f'module{i}.py', 'imports': [f'module{i + 1}'] if i < 1099 else []} for i in range(1100)]
+    ordered = rederive._dependency_order(files)
+    assert len(ordered) == len(files)
+    assert ordered[0]['path'] == 'module1099.py'
+    assert ordered[-1]['path'] == 'module0.py'
+
+
+def test_negated_cited_name_is_not_evidence_of_comprehension(context):
+    plan = start(context)
+    expected = plan['current_step']['facts'][0]['expected']
+    updated = submit(context, plan, 'The source is not ' + expected).json()
+    assert updated['checkpoint']['cursor'] == 0
+    assert updated['evidence_events'][-1]['assessment'] == 'needs_support'
+
+
+def test_substring_path_cannot_advance_checkpoint(context):
+    plan = start(context)
+    expected = plan['current_step']['facts'][0]['expected']
+    updated = submit(context, plan, 'wrong_' + expected).json()
+    assert updated['checkpoint']['cursor'] == 0
+    assert updated['evidence_events'][-1]['assessment'] == 'needs_support'
+
+
+def test_substring_identifier_cannot_advance_checkpoint(context):
+    plan = start(context)
+    plan = submit(context, plan, plan['current_step']['facts'][0]['expected']).json()
+    assert plan['current_step']['facts'][0]['kind'] == 'identifier'
+    expected = plan['current_step']['facts'][0]['expected']
+    updated = submit(context, plan, expected + 'bar').json()
+    assert updated['checkpoint']['cursor'] == 1
+    assert updated['evidence_events'][-1]['assessment'] == 'needs_support'
+
+
+def test_exact_hyphenated_path_and_negation_named_identifier_are_answerable(context):
+    db, client, _ = context
+    for path, content in [('app/not-found.tsx', 'export function Page(){ return null; }\n'),
+                          ('cannot.py', 'def cannot():\n    return 1\n')]:
+        snap = service.create(db, 'a', 'zip_upload', {path: content}, {'total': 1, 'skipped': 0})
+        plan = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers()).json()
+        negated = submit(context, plan, 'The path is not ' + path).json()
+        assert negated['checkpoint']['cursor'] == 0
+        assert negated['evidence_events'][-1]['assessment'] == 'needs_support'
+        updated = submit(context, negated, '`' + path + '`').json()
+        assert updated['checkpoint']['cursor'] == 1
+        assert updated['evidence_events'][-1]['assessment'] == 'supported_observation'
+        if path == 'cannot.py':
+            identifier = submit(context, updated, 'cannot').json()
+            assert identifier['checkpoint']['cursor'] == 2
+            assert identifier['evidence_events'][-1]['assessment'] == 'supported_observation'
+
+
+def test_call_lesson_and_persisted_evidence_contain_ast_call_not_declaration(context):
+    import ast
+    db, client, _ = context
+    source = 'def run():\n    return 1\n\n# run() is a comment\nFAKE = "run()"\n\ndef main():\n    return run()\n'
+    snap = service.create(db, 'a', 'zip_upload', {'module.py': source}, {'total': 1, 'skipped': 0})
+    plan = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers()).json()
+    flow = next(step for step in plan['steps'] if step['phase'] == 'flows')
+    cited = service.validate_citation(db, 'a', snap['snapshot_id'], flow['citations'][0])
+    calls = [node for node in ast.walk(ast.parse(cited)) if isinstance(node, ast.Call)]
+    assert calls and any(isinstance(node.func, ast.Name) and node.func.id == 'run' for node in calls)
+    while plan['current_step']['phase'] != 'flows':
+        plan = submit(context, plan, plan['current_step']['facts'][0]['expected']).json()
+    updated = submit(context, plan, 'run').json()
+    assert updated['evidence_events'][-1]['assessment'] == 'supported_observation'
+    assert updated['evidence_events'][-1]['citations'] == flow['citations']
+
+
+def test_tree_sitter_call_citation_uses_expression_not_same_named_declaration(context):
+    db, client, _ = context
+    source = 'function run(){return 1;}\n// run()\nconst decoy = "run()";\nfunction main(){return run();}\n'
+    snap = service.create(db, 'a', 'zip_upload', {'module.ts': source}, {'total': 1, 'skipped': 0})
+    plan = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers()).json()
+    flow = next(step for step in plan['steps'] if step['phase'] == 'flows')
+    assert flow['citations'][0]['start_line'] == 4
+    assert 'return run();' in service.validate_citation(db, 'a', snap['snapshot_id'], flow['citations'][0])
+
+
+def test_declarations_strings_and_comments_without_calls_produce_no_flow(context):
+    db, client, _ = context
+    for path, content in [('decoy.py', 'def run():\n    return 1\n# run()\nFAKE = "run()"\n'),
+                          ('decoy.ts', 'function run(){return 1;}\n// run()\nconst fake = "run()";\n')]:
+        snap = service.create(db, 'a', 'zip_upload', {path: content}, {'total': 1, 'skipped': 0})
+        plan = client.post(f'/api/v1/repos/{snap["snapshot_id"]}/learning-plan', headers=headers()).json()
+        assert not any(step['phase'] == 'flows' for step in plan['steps'])
 
 
 def test_get_snapshot_plan_missing_and_limits_are_explicit(context, monkeypatch):

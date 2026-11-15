@@ -49,6 +49,8 @@ class OfflineSpeech:
         return self.result(transport)
 
     async def transcribe_frames(self, sid, frames, language, revision, attempt):
+        # Preserve the production service's revision gate at the mocked provider boundary.
+        self.actual._assert_current(sid, revision)
         received = [frame async for frame in frames]
         self.calls.append(('ws', sid, received, revision, attempt))
         if self.after_capture:
@@ -65,6 +67,8 @@ class OfflineSpeech:
 
     async def stream_synthesize(self, sid, text, revision, **kwargs):
         self.calls.append(('stream', sid, text, revision, kwargs))
+        # Synthesis selectors are request fields, not outbound AudioEvent metadata.
+        kwargs = {key: value for key, value in kwargs.items() if key == 'playback_id'}
         yield AudioEvent(event_type='start', request_id='offline-stream', **kwargs)
         if self.mode == 'error':
             raise RuntimeError('Private provider diagnostics must not reach the client')
@@ -391,6 +395,8 @@ def test_websocket_explanation_before_challenge_needs_confirmation_without_execu
         ws.send_json({'type': 'commit'})
         result = ws.receive_json()
     assert result['requires_confirmation'] is True
+    assert result['revision']['turn_generation'] > created['revision']['turn_generation']
+    assert speech.calls[-1][3].model_dump(mode='json') == result['revision']
     claim = result['proposed_claim']
     assert claim['claim_type'] == 'INVARIANT_OR_MECHANISM_CLAIM'
     assert claim['challenge_id'] is None and claim['confirmed_at'] is None

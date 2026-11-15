@@ -20,7 +20,7 @@ def build_learning_snapshot(repo: SQLiteRepository, machine: Any, session_id: st
     with repo._connect() as conn:
         rows = conn.execute(
             "SELECT id FROM evidence_artifacts WHERE session_id=? AND code_version_id=? "
-            "AND turn_generation=? ORDER BY created_at,rowid",
+            "AND turn_generation=? ORDER BY created_at,id",
             (session_id, revision.code_version_id, revision.turn_generation),
         ).fetchall()
         events = conn.execute(

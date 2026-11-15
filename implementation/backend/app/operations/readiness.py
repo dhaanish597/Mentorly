@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import sqlite3
@@ -22,10 +22,12 @@ from backend.app.models.api_schemas import OperationsReadinessResponse
 from backend.app.models.domain import ExecutionBudgetConfig, ExecutionRequest, RevisionRef
 from backend.app.models.enums import ExecutionObservationKind
 from backend.app.orchestration.worker_client import WorkerClient
+from backend.app.core.worker_factory import get_worker_client, OPERATOR_CANARY_SOURCE, OPERATOR_CANARY_INPUT
+from backend.app.db.repository import SQLiteRepository
 
 router = APIRouter(prefix="/ops", tags=["operations"])
-_CANARY_SOURCE = "def first_at_least(nums, target):\n    return 0\n"
-_CANARY_INPUT = {"nums": [0], "target": 0}
+_CANARY_SOURCE = OPERATOR_CANARY_SOURCE
+_CANARY_INPUT = OPERATOR_CANARY_INPUT
 CANARY_TIMEOUT_SECONDS = 8.0
 DATABASE_CHECK_SECONDS = 0.5
 
@@ -41,6 +43,9 @@ def _require_operator(request: Request, authorization: str | None) -> None:
 
 
 def _database_ready(path) -> bool:
+    from backend.app.db.postgres.runtime import PostgresTarget, probe_runtime
+    if isinstance(path, PostgresTarget):
+        return probe_runtime(path)
     deadline = time.monotonic() + DATABASE_CHECK_SECONDS
     try:
         with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.5)) as conn:
@@ -51,20 +56,34 @@ def _database_ready(path) -> bool:
 
 
 async def _run_canary(settings) -> tuple[bool, str, int | None]:
-    worker = WorkerClient(base_url=settings.exec_worker_url,
-        internal_worker_secret=settings.internal_worker_secret.get_secret_value(),
-        allow_public_custom_code=True)
-    revision = RevisionRef(session_id=uuid4(), exercise_id="ex2_binary_search",
+    worker = get_worker_client(settings)
+    repository = SQLiteRepository(settings.database_target)
+    source_hash = hashlib.sha256(_CANARY_SOURCE.encode()).hexdigest()
+    session_id = uuid4()
+    revision = RevisionRef(session_id=session_id, exercise_id="ex2_binary_search",
         spec_version="v1_sorted_with_duplicates", code_version_id=1,
-        code_hash=hashlib.sha256(_CANARY_SOURCE.encode()).hexdigest(), turn_generation=1)
+        code_hash=source_hash, turn_generation=0)
     request = ExecutionRequest(job_id=uuid4(), revision=revision, source_code=_CANARY_SOURCE,
         input_args=_CANARY_INPUT, case_hash=registry.case_key("ex2_binary_search", "v1_sorted_with_duplicates", _CANARY_INPUT),
-        budget=ExecutionBudgetConfig(startup_deadline_ms=1000, invocation_wall_ms=1000,
+        budget=ExecutionBudgetConfig(startup_deadline_ms=5000 if settings.execution_runtime=='vercel_sandbox' else 1000, invocation_wall_ms=1000,
             job_wall_ms=5000, replay_reserve_ms=1000, shrink_wall_ms=0))
+    created = False
     try:
-        handle = await asyncio.wait_for(asyncio.to_thread(worker.submit_execution, request), CANARY_TIMEOUT_SECONDS)
-        observation = handle.observation
+        await asyncio.to_thread(repository.create_session, session_id=str(session_id), token_hash=str(uuid4()),
+            exercise_id='ex2_binary_search', spec_version='v1_sorted_with_duplicates',
+            language_mode='en-IN', interaction_mode='TEXT', starter_code=_CANARY_SOURCE,
+            starter_code_hash=source_hash, expires_at=(datetime.now(timezone.utc)+timedelta(minutes=5)).isoformat())
+        created = True
+        await asyncio.to_thread(repository.register_execution_job, str(session_id), str(request.job_id), 'CANARY', revision, '')
+        if settings.execution_runtime=='vercel_sandbox':
+            from backend.app.models.domain import ExecutionObservation
+            raw = await asyncio.wait_for(asyncio.to_thread(worker.submit_operator_canary, request), 20)
+            observation = ExecutionObservation.model_validate(raw)
+        else:
+            handle = await asyncio.wait_for(asyncio.to_thread(worker.submit_execution, request), CANARY_TIMEOUT_SECONDS)
+            observation = handle.observation
         passed = observation is not None and observation.kind == ExecutionObservationKind.RETURN and observation.return_value == 0
+        await asyncio.to_thread(repository.finish_execution_job, str(session_id), str(request.job_id), 'COMPLETE' if passed else 'FAILED')
         return passed, "PASSED" if passed else "FAILED", observation.duration_ms if observation else None
     except Exception as exc:
         _LOGGER.warning("Readiness canary failed (%s)", type(exc).__name__)
@@ -75,6 +94,9 @@ async def _run_canary(settings) -> tuple[bool, str, int | None]:
         except Exception:
             _LOGGER.warning("Readiness canary cancellation remains unconfirmed")
         return False, "FAILED", None
+    finally:
+        if created:
+            await asyncio.to_thread(repository.tombstone_session, str(session_id))
 
 
 @router.get("/readiness", response_model=OperationsReadinessResponse)
@@ -82,8 +104,14 @@ async def operations_readiness(request: Request, authorization: str | None = Hea
                                run_canary: bool = True) -> OperationsReadinessResponse:
     _require_operator(request, authorization)
     settings = request.app.state.settings
-    database = await asyncio.to_thread(_database_ready, settings.database_path)
+    database = await asyncio.to_thread(_database_ready, settings.database_target)
     accepted = await probe_execution_readiness(settings)
+    if settings.execution_runtime=='vercel_sandbox' and database and run_canary:
+        try:
+            preflight = await asyncio.to_thread(get_worker_client(settings).check_canary_preflight)
+            accepted = 'READY' if preflight.ready and preflight.acceptance_verified else 'BLOCKED_EXTERNAL'
+        except Exception:
+            accepted = 'BLOCKED_EXTERNAL'
     execution, canary, duration = False, "NOT_RUN", None
     if database and accepted == "READY" and run_canary:
         execution, canary, duration = await _run_canary(settings)

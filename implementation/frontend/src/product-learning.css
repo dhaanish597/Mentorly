@@ -1,4 +1,7 @@
 /* Learning inherits VIVA's warm ivory, plum, coral and serif/Inter pairing. */
+.product-skip-link{position:fixed;top:10px;left:10px;z-index:1000;transform:translateY(-180%);padding:12px 18px;border-radius:8px;background:var(--surface);color:var(--ink);border:2px solid var(--focus);font-size:.9rem}
+.product-skip-link:focus{transform:translateY(0)}
+@media(max-width:760px){.product-mobile-nav{gap:0}.product-mobile-nav a{min-width:44px;flex:1;padding:5px 2px;font-size:9px}}
 .learning-layout,.lesson-layout,.settings-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:clamp(24px,4vw,52px);align-items:start;margin:28px 0 64px}
 .learning-eyebrow{font-size:.72rem;font-weight:750;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
 .learning-outline,.lesson-outline,.settings-categories{position:sticky;top:24px}
@@ -13,7 +16,7 @@
 .lesson-outline nav a,.lesson-outline nav>span{flex-direction:column;gap:2px}
 .lesson-outline small{font-size:.7rem;font-weight:400;color:var(--muted)}
 .learning-next{display:flex;justify-content:space-between;gap:24px;align-items:center;background:var(--accent-soft);padding:30px 32px;border-radius:16px;margin-bottom:32px;border:1px solid var(--subtle-line)}
-.learning-next h2{font-family:Georgia,serif;font-size:1.65rem;line-height:1.2;color:var(--ink);margin:0 0 10px;font-weight:500}
+.learning-next h2{font-family:Lora,Georgia,serif;font-size:1.65rem;line-height:1.2;color:var(--ink);margin:0 0 10px;font-weight:500}
 .learning-next p:not(.learning-eyebrow){margin:0;color:var(--muted);line-height:1.6;font-size:.88rem}
 .learning-next .product-button{flex-shrink:0;white-space:nowrap}
 .learning-module{scroll-margin-top:30px;margin:32px 0 42px}
@@ -41,7 +44,7 @@
 .learning-notice button,.lesson-actions>button:not(.product-button),.settings-limitation button{border:1px solid var(--line);border-radius:7px;background:var(--surface);padding:10px 16px;font-weight:600;color:var(--ink);cursor:pointer;min-height:44px}
 .lesson-reading,.lesson-practice{border:1px solid var(--subtle-line);background:var(--surface);border-radius:14px;padding:32px;margin-bottom:28px}
 .lesson-reading ul{padding-left:20px;line-height:1.8;color:var(--muted);font-size:.95rem;margin:0 0 32px}
-.lesson-reading h2,.lesson-practice h2{font-family:Georgia,serif;font-size:1.65rem;font-weight:500;margin:0 0 16px;color:var(--ink)}
+.lesson-reading h2,.lesson-practice h2{font-family:Lora,Georgia,serif;font-size:1.65rem;font-weight:500;margin:0 0 16px;color:var(--ink)}
 .lesson-explanation{white-space:pre-wrap;line-height:1.85;font-size:1rem;color:var(--ink)}
 .lesson-reading h3{font-size:.92rem;margin:26px 0 12px}
 .lesson-reading pre{overflow-x:auto;background:var(--soft);padding:20px;border-radius:8px;border:1px solid var(--subtle-line);color:var(--ink);line-height:1.7;font-size:.87rem;max-width:100%}
@@ -52,7 +55,7 @@
 .lesson-options label{display:flex;align-items:center;gap:13px;border:1px solid var(--line);border-radius:8px;padding:15px;cursor:pointer;color:var(--ink);min-height:48px;line-height:1.55}
 .lesson-options label:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
 .lesson-options input,.setting-toggle input,.theme-option input{accent-color:var(--focus);width:17px;height:17px;flex:none}
-.lesson-answer-label{display:flex;flex-direction:column;gap:10px;font-size:.85rem;line-height:1.65;color:var(--muted)}
+.lesson-answer-label{display:flex;flex-direction:column;gap:10px;margin-top:20px;font-size:.85rem;line-height:1.65;color:var(--muted)}
 .lesson-answer-label textarea{resize:vertical;min-height:140px;border:1px solid var(--line);border-radius:8px;padding:14px;color:var(--ink);background:var(--background);font:inherit;line-height:1.75;width:100%}
 .lesson-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .lesson-actions button:disabled{opacity:.6;cursor:default}
@@ -68,7 +71,7 @@
 .learning-progress-section{margin:36px 0 48px}
 .learning-beginner{display:flex;align-items:flex-start;gap:22px;border-top:1px solid var(--subtle-line);border-bottom:1px solid var(--subtle-line);padding:28px 4px}
 .learning-beginner>.horizon-icon{width:34px;height:34px;color:var(--accent);flex:none}
-.learning-beginner h3{margin:0 0 10px;font:500 1.45rem/1.3 Georgia,serif;color:var(--ink)}
+.learning-beginner h3{margin:0 0 10px;font:500 1.45rem/1.3 Lora,Georgia,serif;color:var(--ink)}
 .learning-beginner p{color:var(--muted);font-size:.92rem;line-height:1.75;max-width:640px}
 .progress-record>p,.local-practice-record>p{font-size:.88rem;color:var(--muted);line-height:1.7}
 .progress-count-list{margin:18px 0 25px;border-top:1px solid var(--subtle-line)}
@@ -91,7 +94,7 @@
 .settings-categories .horizon-icon{flex:none;width:18px;height:18px}
 .settings-panel{border:1px solid var(--subtle-line);background:var(--surface);border-radius:16px;padding:34px;min-width:0}
 .settings-panel>header{padding-bottom:24px;border-bottom:1px solid var(--subtle-line)}
-.settings-panel>header h2{font:500 2rem/1.2 Georgia,serif;margin:0 0 12px;color:var(--ink)}
+.settings-panel>header h2{font:500 2rem/1.2 Lora,Georgia,serif;margin:0 0 12px;color:var(--ink)}
 .settings-panel>header>p:not(.learning-eyebrow){font-size:.9rem;line-height:1.65;color:var(--muted);margin:0}
 .setting-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,.65fr);align-items:center;gap:24px;padding:25px 0;border-bottom:1px solid var(--subtle-line)}
 .setting-row h3{font-size:.95rem;font-weight:650;line-height:1.5;margin:0 0 7px;color:var(--ink)}

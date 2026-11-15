@@ -30,7 +30,7 @@ def install_session_security(app, settings):
         if not match or request.method == 'OPTIONS':
             return await call_next(request)
         sid = match.group(1)
-        repo = SQLiteRepository(settings.database_path)
+        repo = SQLiteRepository(settings.database_target)
         repo.initialize()
         row = repo.get_session(sid, include_deleted=True)
         header = request.headers.get('authorization', '')

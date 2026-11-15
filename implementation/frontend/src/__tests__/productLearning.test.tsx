@@ -10,7 +10,7 @@ const catalogMock = { version: 'mock-v1', tracks: [{ id: 'python', module: 'Prog
   { id: 'loops', title: 'Loops and repetition', prerequisites: ['variables'], difficulty: 'beginner', estimated_minutes: 10, objectives: ['Trace a loop'], explanation: 'A loop repeats an action.', example: 'for n in range(3): print(n)', hints: [], practice_url: '/library', question: { id: 'q2', prompt: 'Explain the loop.' } },
 ] }] };
 const progressMock = { lessons_completed: 0, attempts: 0, topics_mastered: 0, practice_sessions: 0, interviews_completed: 0, study_seconds: 0, streak: 0, completed_lesson_ids: [], achievements: [], recommendations: [], recent_activity: [] };
-const sessionMock = { id: 'mock-session', lesson_id: 'variables', epoch: 0, mode: 'practice', state: 'active', question: catalogMock.tracks[0].lessons[0].question, coach_messages: [], answer_count: 0, deadline: null };
+const sessionMock = { id: 'mock-session', lesson_id: 'variables', epoch: 1, mode: 'practice', state: 'active', question: catalogMock.tracks[0].lessons[0].question, coach_messages: [], answer_count: 0, deadline: null };
 let fetcher: ReturnType<typeof vi.fn<(url: string, options?: RequestInit) => Promise<Response>>>;
 let currentProgress: Record<string, unknown>;
 let currentSession: Record<string, unknown>;
@@ -25,7 +25,7 @@ beforeEach(() => {
     if (url === '/api/v1/learning/catalog') return response(catalogMock);
     if (url === '/api/v1/learning/progress') return response(currentProgress);
     if (url === '/api/v1/learning/sessions') return response(currentSession);
-    if (url.endsWith('/hints')) return response({ ...currentSession, hint: 'Follow the assignment.' });
+    if (url.endsWith('/hints')) { currentSession = { ...currentSession, epoch: Number(currentSession.epoch) + 1, hint: 'Follow the assignment.' }; return response(currentSession); }
     if (url.endsWith('/answers')) {
       const body = JSON.parse(String(options?.body));
       const correct = body.answer === '3';
@@ -74,7 +74,7 @@ describe('curriculum and lesson practice', () => {
     expect(await screen.findByText('Exactly. Assignment stores the value 3.')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: /Next lesson: Loops and repetition/ })).toHaveAttribute('href', '/learn/loops');
     const answerCalls = fetcher.mock.calls.filter(([url]) => String(url).endsWith('/answers'));
-    expect(JSON.parse(String(answerCalls[1][1]?.body))).toEqual({ expected_epoch: 1, question_id: 'q1', answer: '3' });
+    expect(JSON.parse(String(answerCalls[1][1]?.body))).toEqual({ expected_epoch: 3, question_id: 'q1', answer: '3' });
     view.unmount(); show('/learn/variables');
     await screen.findByText('Exactly. Assignment stores the value 3.');
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/v1/learning/sessions')).toHaveLength(1);
@@ -105,10 +105,20 @@ describe('curriculum and lesson practice', () => {
 });
 
 describe('real progress surfaces', () => {
+  it('loads recorded progress independently of the lesson catalog', async () => {
+    currentProgress = { ...progressMock, lessons_completed: 1, completed_lesson_ids: ['variables'] };
+    const normalFetch = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async (url, options) => url === '/api/v1/learning/catalog' ? response({}, 503) : normalFetch(url, options));
+    show('/progress');
+    expect(await screen.findByText('Progress from recorded workspace activity, not an estimated score.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
   it('starts with honest beginner progress and keeps teacher discovery', async () => {
     show('/dashboard');
     await screen.findByText('Your first lesson is a good place to start.');
     expect(screen.getByRole('heading', { name: 'Meet Your AI Teachers' })).toBeInTheDocument();
+    expect(screen.getAllByAltText('Your Mentorly mentor')).toHaveLength(1);
+    expect(screen.getAllByAltText(/^Meet .+ · /)).toHaveLength(4);
     expect(screen.queryByText(/leaderboard/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Total XP/i)).not.toBeInTheDocument();
   });

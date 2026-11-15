@@ -21,6 +21,7 @@ from .repository import (
     SessionRecord,
     SessionRepository,
 )
+from .postgres.runtime import PostgresTarget
 
 __all__ = [
     "AppliedMigration",
@@ -31,6 +32,7 @@ __all__ = [
     "IdempotencyRecord",
     "MigrationError",
     "RepositoryError",
+    "PostgresTarget",
     "RevisionConflictError",
     "SQLiteRepository",
     "SessionDeletedError",

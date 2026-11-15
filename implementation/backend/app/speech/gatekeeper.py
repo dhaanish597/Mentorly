@@ -53,6 +53,8 @@ from backend.app.speech.gnani_adapter import (
     GnaniTransportError,
 )
 from backend.app.speech.pre_tts_normalizer import to_speakable
+from backend.app.db.postgres.runtime import PostgresTarget
+from backend.app.db.postgres import cloud
 
 
 class SpeechBusyError(RuntimeError):
@@ -88,6 +90,11 @@ def accounted_speech_totals(conn: sqlite3.Connection) -> tuple[float, int]:
         row = conn.execute(f"SELECT COALESCE(SUM(stt_seconds),0),COALESCE(SUM(tts_chars),0) FROM {table} WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN')").fetchone()
         seconds += row[0]
         chars += row[1]
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_deleted_totals'").fetchone():
+        # Duration/character caps are lifetime budgets, unlike the daily call limit.
+        retained = conn.execute('SELECT COALESCE(SUM(stt_seconds),0),COALESCE(SUM(tts_chars),0) FROM module_speech_deleted_totals').fetchone()
+        seconds += retained[0]
+        chars += retained[1]
     return seconds, chars
 
 
@@ -113,7 +120,8 @@ class SpeechGatekeeper:
         if max_concurrency != 1:
             raise ValueError("Gnani constraint requires max_concurrency == 1.")
         self.adapter = adapter
-        self.db_path = str(db_path)
+        self.db_path = db_path if isinstance(db_path, PostgresTarget) else str(db_path)
+        self._cloud = isinstance(db_path, PostgresTarget)
         self.max_concurrency = 1
         self.max_waiting = max_waiting
         self.queue_wait_timeout_sec = queue_wait_timeout_sec
@@ -133,13 +141,15 @@ class SpeechGatekeeper:
         self._cancelled_turns: set[tuple[str, int]] = set()
         self._db_lock = threading.RLock()
 
-        if self.db_path != ":memory:" and not self.db_path.startswith("file:"):
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            self.db_path, check_same_thread=False, isolation_level=None
-        )
-        self._conn.row_factory = sqlite3.Row
-        self._init_db()
+        if self._cloud:
+            from backend.app.db.migrations import open_connection
+            self._conn = open_connection(self.db_path)
+        else:
+            if self.db_path != ":memory:" and not self.db_path.startswith("file:"):
+                Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(self.db_path, check_same_thread=False, isolation_level=None)
+            self._conn.row_factory = sqlite3.Row
+            self._init_db()
 
     def _table_columns(self, table_name: str) -> set[str]:
         rows = self._conn.execute(f"PRAGMA table_info({table_name});").fetchall()
@@ -153,9 +163,11 @@ class SpeechGatekeeper:
         This method must not run while another coordinator is serving requests.
         """
         with self._db_lock:
+            clause = ' AND created_at<?' if self._cloud else ''
+            parameters = ((datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat(),) if self._cloud else ()
             rows = self._conn.execute(
                 "SELECT * FROM usage_reservations WHERE status='RESERVED' "
-                "AND operation_type IN ('STT','TTS')"
+                "AND operation_type IN ('STT','TTS')" + clause, parameters
             ).fetchall()
         for row in rows:
             self._finalize_reservation(
@@ -276,6 +288,8 @@ class SpeechGatekeeper:
             if existing[0] is not None:
                 raise SpeechBusyError("Session deleted; speech is cancelled.")
             return
+        if self._cloud:
+            raise SpeechBusyError('Shared speech session is unavailable')
         now_iso = _utc_now_iso()
         exp_iso = _utc_future_iso(24)
         token_hash = hashlib.sha256(
@@ -340,6 +354,13 @@ class SpeechGatekeeper:
         turn_generation: int,
         capture_attempt_id: int,
     ) -> bool:
+        if self._cloud:
+            with self._db_lock:
+                row = self._conn.execute('SELECT s.deleted_at,s.expires_at,s.active_turn_generation,MAX(t.latest_capture_attempt_id) AS capture FROM sessions s LEFT JOIN turns t ON t.session_id=s.id AND t.turn_generation=s.active_turn_generation WHERE s.id=? GROUP BY s.id', (session_id,)).fetchone()
+                cancelled = self._conn.execute("SELECT 1 FROM turns WHERE session_id=? AND turn_generation=? AND latest_capture_attempt_id=? AND state IN ('CANCELLED','SUPERSEDED')", (session_id, turn_generation, capture_attempt_id)).fetchone()
+            if (not row or row['deleted_at'] is not None or datetime.fromisoformat(row['expires_at']) <= datetime.now(timezone.utc)
+                    or row['active_turn_generation'] != turn_generation or (row['capture'] is not None and row['capture'] > capture_attempt_id) or cancelled):
+                return True
         if (session_id, turn_generation) in self._cancelled_turns:
             return True
         tracker = self._session_captures.get(session_id)
@@ -382,9 +403,9 @@ class SpeechGatekeeper:
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN stt_seconds ELSE 0.0 END), 0.0),
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN tts_chars ELSE 0 END), 0),
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN tts_chars ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN operation_type = 'STT' AND status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN request_count ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN operation_type = 'TTS' AND status = 'COMMITTED' AND COALESCE(cache_hit, 0) = 0 AND COALESCE(uncertain, 0) = 0 THEN request_count ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN request_count ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN operation_type = 'STT' AND status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN operation_type = 'TTS' AND status = 'COMMITTED' AND COALESCE(cache_hit, 0) = 0 AND COALESCE(uncertain, 0) = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN 1 ELSE 0 END), 0)
                 FROM usage_ledger;
                 """
             ).fetchone()
@@ -397,10 +418,11 @@ class SpeechGatekeeper:
             tts_reqs = int(led_row[5] if led_row else 0)
             uncertain_reqs = int(led_row[6] if led_row else 0)
 
+        active = cloud.count(self.db_path, kind='speech') if self._cloud else self._active_count
         return SpeechCapacityStatus(
-            deployment_topology="SINGLE_PROCESS_LOCAL_SEMAPHORE",
+            deployment_topology="DISTRIBUTED_POSTGRES_LEASE" if self._cloud else "SINGLE_PROCESS_LOCAL_SEMAPHORE",
             max_concurrency=self.max_concurrency,
-            active_requests=self._active_count,
+            active_requests=active,
             queued_requests=self._waiting_count,
             max_waiting=self.max_waiting,
             degradation_status=self._degradation,
@@ -526,6 +548,10 @@ class SpeechGatekeeper:
                 if session is None:
                     self._conn.execute("COMMIT;")
                     return
+                reservation = self._conn.execute('SELECT status FROM usage_reservations WHERE id=? OR reservation_id=?', (reservation_id, reservation_id)).fetchone()
+                if reservation is None or reservation['status'] != 'RESERVED':
+                    self._conn.execute('COMMIT')
+                    return
                 if effective_committed:
                     self._conn.execute(
                         """
@@ -600,7 +626,7 @@ class SpeechGatekeeper:
                     self._conn.execute("ROLLBACK;")
                 raise
 
-    async def _acquire_single_slot(self) -> None:
+    async def _acquire_single_slot(self, session_id: str | None = None):
         if self._waiting_count >= self.max_waiting:
             self._degradation = SpeechDegradationStatus.SPEECH_BUSY_TEXT_FALLBACK
             raise SpeechBusyError(
@@ -620,10 +646,37 @@ class SpeechGatekeeper:
         finally:
             self._waiting_count -= 1
         self._active_count += 1
+        if self._cloud:
+            try:
+                admission = asyncio.create_task(asyncio.to_thread(cloud.acquire, self.db_path,
+                    kind='speech', owner=session_id or str(uuid.uuid4()), limit=1, seconds=60))
+                try:
+                    lease = await asyncio.shield(admission)
+                except asyncio.CancelledError:
+                    lease = await admission
+                    if lease is not None:
+                        await asyncio.to_thread(cloud.finish, self.db_path, lease)
+                    raise
+                if lease is None:
+                    raise SpeechBusyError('Shared speech provider is busy or awaiting reconciliation')
+                return lease
+            except BaseException:
+                self._active_count = max(0, self._active_count - 1)
+                self._semaphore.release()
+                raise
+        return None
 
-    def _release_single_slot(self) -> None:
-        self._active_count = max(0, self._active_count - 1)
-        self._semaphore.release()
+    def _start_single_slot(self, lease) -> None:
+        if lease is not None:
+            cloud.start(self.db_path, lease)
+
+    def _release_single_slot(self, lease=None, *, uncertain: bool = False) -> None:
+        try:
+            if lease is not None:
+                cloud.finish(self.db_path, lease, uncertain=uncertain)
+        finally:
+            self._active_count = max(0, self._active_count - 1)
+            self._semaphore.release()
 
     def _reserve_retry_calls(self, reservation_id: str, total_calls: int) -> None:
         """Re-admit physical retries atomically against the shared daily call budget."""
@@ -677,8 +730,10 @@ class SpeechGatekeeper:
         actual_sec = 0.0
         physical_calls = 0
         dispatched = False
+        slot = None
+        lease_started = False
         try:
-            await self._acquire_single_slot()
+            slot = await self._acquire_single_slot(req.session_id) if self._cloud else await self._acquire_single_slot()
             slot_acquired = True
 
             if self.is_capture_superseded(
@@ -693,11 +748,12 @@ class SpeechGatekeeper:
                 try:
                     if assert_current is not None:
                         assert_current()
+                    if not lease_started:
+                        self._start_single_slot(slot)
+                        lease_started = True
                     dispatched = True
                     physical_calls += 1
-                    result = await (transcribe_fn or self.adapter.transcribe_rest)(
-                        req, wav_bytes
-                    )
+                    result = await asyncio.wait_for((transcribe_fn or self.adapter.transcribe_rest)(req, wav_bytes), timeout=60.0)
                     committed = True
                     actual_sec = result.audio_duration_sec
 
@@ -753,18 +809,15 @@ class SpeechGatekeeper:
                 actual_sec = est_sec
             raise
         finally:
-            if slot_acquired:
-                self._release_single_slot()
-            self._finalize_reservation(
-                res_id,
-                session_id=req.session_id,
-                turn_generation=req.turn_generation,
-                operation_type="STT",
-                committed=committed,
-                uncertain=uncertain,
-                actual_stt_sec=actual_sec,
-                actual_provider_calls=physical_calls,
-            )
+            settled = False
+            try:
+                self._finalize_reservation(res_id, session_id=req.session_id,
+                    turn_generation=req.turn_generation, operation_type='STT', committed=committed,
+                    uncertain=uncertain, actual_stt_sec=actual_sec, actual_provider_calls=physical_calls)
+                settled = True
+            finally:
+                if slot_acquired:
+                    self._release_single_slot(slot, uncertain=uncertain or (dispatched and not settled))
 
     async def execute_tts(
         self, req: TTSRequest, *, on_event=None, assert_current: Callable[[], None] | None = None
@@ -792,8 +845,10 @@ class SpeechGatekeeper:
         was_cache_hit = False
         physical_calls = 0
         dispatched = False
+        slot = None
+        lease_started = False
         try:
-            await self._acquire_single_slot()
+            slot = await self._acquire_single_slot(req.session_id) if self._cloud else await self._acquire_single_slot()
             slot_acquired = True
 
             if (req.session_id, req.turn_generation) in self._cancelled_turns:
@@ -804,6 +859,9 @@ class SpeechGatekeeper:
                 try:
                     if assert_current is not None:
                         assert_current()
+                    if cached is None and not lease_started:
+                        self._start_single_slot(slot)
+                        lease_started = True
                     dispatched = cached is None
                     kwargs = {
                         "is_cancelled": lambda: (
@@ -813,7 +871,7 @@ class SpeechGatekeeper:
                     }
                     if on_event is not None:
                         kwargs["on_event"] = on_event
-                    synthesis = cached if cached is not None else await self.adapter.synthesize_tts(req, **kwargs)
+                    synthesis = cached if cached is not None else await asyncio.wait_for(self.adapter.synthesize_tts(req, **kwargs), timeout=60.0)
                     committed = True
                     billed_chars = synthesis.total_chars_billed
                     was_cache_hit = synthesis.cache_hit
@@ -875,16 +933,13 @@ class SpeechGatekeeper:
                 billed_chars = est_chars
             raise
         finally:
-            if slot_acquired:
-                self._release_single_slot()
-            self._finalize_reservation(
-                res_id,
-                session_id=req.session_id,
-                turn_generation=req.turn_generation,
-                operation_type="TTS",
-                committed=committed,
-                uncertain=uncertain,
-                actual_tts_chars=billed_chars,
-                cache_hit=was_cache_hit,
-                actual_provider_calls=physical_calls if not uncertain else max(physical_calls, len(speakable_chunks)),
-            )
+            settled = False
+            try:
+                self._finalize_reservation(res_id, session_id=req.session_id,
+                    turn_generation=req.turn_generation, operation_type='TTS', committed=committed,
+                    uncertain=uncertain, actual_tts_chars=billed_chars, cache_hit=was_cache_hit,
+                    actual_provider_calls=physical_calls if not uncertain else max(physical_calls, len(speakable_chunks)))
+                settled = True
+            finally:
+                if slot_acquired:
+                    self._release_single_slot(slot, uncertain=uncertain or (dispatched and not settled))

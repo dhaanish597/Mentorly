@@ -10,7 +10,7 @@ export interface LearningTrack { id: string; module: string; title: string; desc
 export interface LearningCatalog { version: string; tracks: LearningTrack[] }
 export interface LearningAchievement { id: string; title: string; earned_at: string; source_event: string }
 export interface LearningRecommendation { lesson_id: string; title: string; reason: string; url: string }
-export interface LearningActivity { id?: string; title: string; occurred_at?: string; kind?: string }
+export interface LearningActivity { id?: string; title: string; occurred_at?: string; kind?: string; session_id?: string }
 export interface LearningProgress {
   lessons_completed: number; attempts: number; topics_mastered: number; practice_sessions: number;
   interviews_completed: number; study_seconds: number; streak: number; completed_lesson_ids: string[];
@@ -47,7 +47,9 @@ export function learningUrl(value: unknown, fallback = '/learn'): string {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\s]/.test(value)) return fallback;
   try {
     const url = new URL(value, 'https://viva.invalid');
-    return url.origin === 'https://viva.invalid' ? `${url.pathname}${url.search}${url.hash}` : fallback;
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    if (!href.startsWith('/') || href.startsWith('//') || /[\\\s]/.test(href)) return fallback;
+    return url.origin === 'https://viva.invalid' && new URL(href, 'https://viva.invalid').origin === 'https://viva.invalid' ? href : fallback;
   } catch { return fallback; }
 }
 function question(value: unknown): LearningQuestion {
@@ -62,13 +64,30 @@ export function parseLearningCatalog(value: unknown): LearningCatalog {
   const raw = object(value);
   return { version: text(raw.version), tracks: list(raw.tracks).map(value => { const track = object(value); return { id: text(track.id), module: text(track.module), title: text(track.title), description: text(track.description), lessons: list(track.lessons).map(lesson) }; }) };
 }
+const MAX_INTERVIEW_SESSION_REFERENCE_LENGTH = 200;
+/** Opaque references stay bounded and must be encoded at every URL use. */
+export function parseInterviewSessionReference(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '.' && value !== '..' && value.length > 0 && value.length <= MAX_INTERVIEW_SESSION_REFERENCE_LENGTH
+    && !/[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(value) ? value : undefined;
+}
+function activity(value: unknown): LearningActivity {
+  const item = object(value);
+  const sessionId = parseInterviewSessionReference(item.session_id);
+  return {
+    id: typeof item.id === 'string' ? item.id : undefined,
+    title: text(item.title ?? item.description ?? item.event_type),
+    occurred_at: typeof item.created_at === 'string' ? item.created_at : typeof item.occurred_at === 'string' ? item.occurred_at : undefined,
+    kind: typeof item.type === 'string' ? item.type : typeof item.kind === 'string' ? item.kind : undefined,
+    ...(sessionId ? { session_id: sessionId } : {}),
+  };
+}
 export function parseLearningProgress(value: unknown): LearningProgress {
   const raw = object(value);
   return {
     lessons_completed: count(raw.lessons_completed), attempts: count(raw.attempts), topics_mastered: count(raw.topics_mastered), practice_sessions: count(raw.practice_sessions), interviews_completed: count(raw.interviews_completed), study_seconds: count(raw.study_seconds), streak: count(raw.streak), completed_lesson_ids: texts(raw.completed_lesson_ids),
     achievements: list(raw.achievements).flatMap(value => { const item = object(value); return typeof item.source_event === 'string' && item.source_event && typeof item.earned_at === 'string' && item.earned_at ? [{ id: text(item.id), title: text(item.title), earned_at: item.earned_at, source_event: item.source_event }] : []; }),
     recommendations: list(raw.recommendations).map(value => { const item = object(value); return { lesson_id: text(item.lesson_id), title: text(item.title), reason: text(item.reason), url: learningUrl(item.url) }; }),
-    recent_activity: list(raw.recent_activity).map(value => { const item = object(value); return { id: typeof item.id === 'string' ? item.id : undefined, title: text(item.title ?? item.description ?? item.event_type), occurred_at: typeof item.occurred_at === 'string' ? item.occurred_at : undefined, kind: typeof item.kind === 'string' ? item.kind : undefined }; }),
+    recent_activity: list(raw.recent_activity).map(activity),
   };
 }
 export function parseLearningSession(value: unknown): LearningSession {
@@ -93,5 +112,5 @@ export const learningApi = {
   async getSession(workspace: Workspace, id: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(id)}`, { workspace, signal })); },
   async answer(workspace: Workspace, session: LearningSession, answer: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/answers`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id, answer } })); },
   async restart(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/restart`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch } })); },
-  async hint(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/hints`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id } })); },
+  async hint(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/hints`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch } })); },
 };

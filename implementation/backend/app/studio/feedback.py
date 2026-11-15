@@ -54,7 +54,7 @@ async def feedback(req:Request,sid:str,data:FeedbackBody,authorization:str=Heade
     key=validated_credential(settings.groq_api_key)
     external=bool(settings.llm_provider=='groq' and data.allow_external and key and settings.llm_model)
     reservation_id=None
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(req.app.state.settings.database_target)) as db:
         db.execute('BEGIN IMMEDIATE'); s=auth(db,sid,authorization)
         if s['epoch']!=data.epoch: raise HTTPException(409,'Turn epoch conflict')
         if s['posture']=='assessment' and s['state']!='completed': raise HTTPException(409,'Feedback withheld until debrief')
@@ -66,7 +66,7 @@ async def feedback(req:Request,sid:str,data:FeedbackBody,authorization:str=Heade
             saved=json.loads(old['response_json'])
             if saved.get('pending'): raise HTTPException(409,'Feedback outcome uncertain')
             return saved
-        rows=db.execute('SELECT id,content FROM studio_turns WHERE session_id=? AND superseded_by IS NULL ORDER BY (id=?) DESC,created_at DESC,rowid DESC LIMIT 3',(sid,data.turn_id)).fetchall()
+        rows=db.execute('SELECT id,content FROM studio_turns WHERE session_id=? AND superseded_by IS NULL ORDER BY (id=?) DESC,created_at DESC,id DESC LIMIT 3',(sid,data.turn_id)).fetchall()
         turns=[{'id':r['id'],'content':r['content'][:2000]} for r in reversed(rows)]
         graph=json.loads(db.execute('SELECT graph_json FROM studio_diagrams WHERE session_id=? AND revision=?',(sid,s['diagram_revision'])).fetchone()[0])
         spec=json.loads(s['scenario_json']); active=spec['progressive_constraints'][s['constraint_index']]
@@ -88,7 +88,7 @@ async def feedback(req:Request,sid:str,data:FeedbackBody,authorization:str=Heade
         try:
             schema=ModelFeedback.model_json_schema()
             async with httpx.AsyncClient(timeout=httpx.Timeout(2.0)) as client:
-                with closing(open_connection(settings.database_path)) as db:
+                with closing(open_connection(settings.database_target)) as db:
                     current=auth(db,sid,authorization)
                     if current['epoch']!=data.epoch or current['diagram_revision']!=revision or current['constraint_index']!=constraint_index:
                         raise HTTPException(409,'Feedback superseded')
@@ -102,8 +102,8 @@ async def feedback(req:Request,sid:str,data:FeedbackBody,authorization:str=Heade
         except (httpx.HTTPError,ValueError,KeyError,IndexError,TypeError,ValidationError): pass
         finally:
             unregister_task(sid,data.epoch,entry)
-            model_budget.settle(settings.database_path,reservation_id,accounting_status)
-    with closing(open_connection(settings.database_path)) as db:
+            model_budget.settle(settings.database_target,reservation_id,accounting_status)
+    with closing(open_connection(settings.database_target)) as db:
         db.execute('BEGIN IMMEDIATE'); current=auth(db,sid,authorization)
         if current['epoch']!=data.epoch or current['diagram_revision']!=revision or current['constraint_index']!=constraint_index: raise HTTPException(409,'Feedback superseded')
         payload={'turn_id':data.turn_id,'epoch':data.epoch,'transcript_revision':turn['transcript_revision'],

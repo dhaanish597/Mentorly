@@ -645,8 +645,8 @@ describe('additional concurrency and resource regression evals', () => {
     expect(bytes[0]).toBe(128);
   });
 
-  it('keeps the microphone idle after a cached audio element error and ignores late media events', async () => {
-    request.mockResolvedValue(tts());
+  it('keeps the microphone idle after evicting failed audio and ignores late media events', async () => {
+    request.mockImplementation(() => Promise.resolve(tts()));
     const view = mount([coach()]);
     await enableCoach();
     const player = view.container.querySelector('audio')!;
@@ -658,7 +658,8 @@ describe('additional concurrency and resource regression evals', () => {
     fireEvent.error(player);
     fireEvent.ended(player);
     expect(screen.getByRole('status').textContent).toMatch(/idle.*stopped/i);
-    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(revokeUrl).toHaveBeenCalledWith('blob:coach-1');
   });
 
   it('fences a new permission request if earlier microphone cleanup fails', async () => {
