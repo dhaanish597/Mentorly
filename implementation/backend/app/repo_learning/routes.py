@@ -61,16 +61,35 @@ def retry_key(request: Request) -> str | None:
     return key
 
 
+def normalize_repo_url(locator: str) -> tuple[str, str, str, str]:
+    """Parse and normalize git repository URL into (platform, owner, repo, branch_or_head)."""
+    u = urlsplit(locator.strip())
+    if u.scheme != 'https' or u.netloc.lower() not in ('github.com', 'gitlab.com') or u.query or u.fragment:
+        raise ingest.ImportFailure('unsupported repository URL')
+    parts = u.path.strip('/').split('/')
+    if len(parts) < 2 or not all(re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', part) and part not in ('.', '..') for part in parts):
+        raise ingest.ImportFailure('unsupported repository URL')
+    owner = parts[0]
+    repo = parts[1].removesuffix('.git')
+    if not repo:
+        raise ingest.ImportFailure('unsupported repository URL')
+    branch = 'HEAD'
+    if len(parts) >= 4 and parts[2] in ('tree', 'branch'):
+        branch = '/'.join(parts[3:])
+    platform = 'github' if u.netloc.lower() == 'github.com' else 'gitlab'
+    return platform, owner, repo, branch
+
+
 async def fetch_public_archive(locator: str) -> bytes:
-    u=urlsplit(locator)
-    if u.scheme!='https' or u.netloc.lower() not in ('github.com','gitlab.com') or u.query or u.fragment:
-        raise ingest.ImportFailure('unsupported repository URL')
-    parts=u.path.strip('/').split('/')
-    if len(parts)!=2 or not all(re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',part) and part not in ('.','..') for part in parts):
-        raise ingest.ImportFailure('unsupported repository URL')
-    owner,repo=parts; repo=repo.removesuffix('.git')
-    if not repo: raise ingest.ImportFailure('unsupported repository URL')
-    url=(f'https://codeload.github.com/{owner}/{repo}/zip/HEAD' if u.netloc.lower()=='github.com' else f'https://gitlab.com/{owner}/{repo}/-/archive/HEAD/{repo}-HEAD.zip')
+    platform, owner, repo, branch = normalize_repo_url(locator)
+    if platform == 'github':
+        url = (
+            f'https://codeload.github.com/{owner}/{repo}/zip/HEAD'
+            if branch == 'HEAD'
+            else f'https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}'
+        )
+    else:
+        url = f'https://gitlab.com/{owner}/{repo}/-/archive/{branch}/{repo}-{branch}.zip'
     try:
         async with asyncio.timeout(ARCHIVE_TOTAL_TIMEOUT):
             async with httpx.AsyncClient(transport=PublicArchiveTransport(), follow_redirects=False, trust_env=False, timeout=httpx.Timeout(20,connect=5)) as client:

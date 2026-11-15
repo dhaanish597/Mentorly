@@ -14,6 +14,9 @@ from backend.app.main import create_app
 @pytest.fixture(autouse=True)
 def _reset_caches(tmp_path, monkeypatch):
     monkeypatch.setenv("VCC_DATABASE_PATH", str(tmp_path / "meta.sqlite3"))
+    branding_fixture = tmp_path / 'branding.json'
+    branding_fixture.write_text(json.dumps({'productName': 'VIVA', 'productNameStatus': 'CONFIGURED', 'shortName': 'V', 'tagline': 'Explain, predict, verify, and transfer.'}), encoding='utf-8')
+    monkeypatch.setenv('VCC_BRANDING_CONFIG_PATH', str(branding_fixture))
     clear_settings_cache()
     clear_branding_cache()
     yield

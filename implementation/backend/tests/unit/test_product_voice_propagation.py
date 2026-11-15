@@ -58,6 +58,37 @@ def test_product_voice_all_legacy_tts_paths_follow_session_language(tmp_path, me
         service.close()
 
 
+def test_product_voice_studio_disconnect_cancels_provider_and_keeps_uncertain_usage(monkeypatch):
+    from contextlib import asynccontextmanager
+    from fastapi import HTTPException
+    from backend.app.studio import speech
+    statuses=[]
+    cancelled=[]
+    @asynccontextmanager
+    async def slot(req):
+        yield
+    monkeypatch.setattr(speech,'speech_slot',slot)
+    monkeypatch.setattr(speech,'reserve',lambda *args:'reserved')
+    monkeypatch.setattr(speech,'settle',lambda req,rid,status:statuses.append(status))
+    async def disconnected():
+        return True
+    async def dispatch():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+    async def scenario():
+        started=asyncio.get_running_loop().time()
+        with pytest.raises(HTTPException) as failure:
+            await asyncio.wait_for(speech.run_provider(SimpleNamespace(is_disconnected=disconnected),'session','token',1,'idem-key','TTS','digest',0,5,1,dispatch,lambda:None),timeout=1)
+        assert failure.value.status_code==409
+        assert asyncio.get_running_loop().time()-started < .5
+    asyncio.run(scenario())
+    assert cancelled==[True]
+    assert statuses==['UNCERTAIN']
+
+
 def test_product_voice_text_conversation_needs_no_provider_and_is_authenticated(tmp_path, monkeypatch):
     settings=Settings(_env_file=None,gnani_api_key=None,database_path=tmp_path/'db',tts_cache_dir=tmp_path/'cache')
     app=create_app(settings)

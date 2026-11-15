@@ -1,4 +1,5 @@
 import type { Graph } from './studioApi';
+import { modelAvailabilityLabel } from './services/modelAvailability';
 
 export type RequiredField = { key: string; type: string; description?: string; values?: unknown[] };
 export type ScenarioView = {
@@ -51,8 +52,9 @@ export function SummaryView({ value }: { value: unknown }) {
 }
 
 export function FeedbackView({ value }: { value: unknown }) {
-  const v = value as { status?: string; question?: string; uncertainty?: string; source?: string };
+  const v = value as { status?: string; question?: string; uncertainty?: string; source?: string; model_status?: string };
   return <div className="readable-result">
+    {v.model_status && <p role="status">{modelAvailabilityLabel(v.model_status)}</p>}
     <p><strong>{readable(v.status)}</strong>{v.source && ` · ${readable(v.source)}`}</p>
     {v.question && <p>{v.question}</p>}{v.uncertainty && <p>{v.uncertainty}</p>}
   </div>;

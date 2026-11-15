@@ -159,6 +159,7 @@ export interface OutputPredictionClaim {
   critical_tokens?: string[];
   provider_confidence?: number | null;
   extraction_method: ExtractionMethod;
+  model_status?: 'MODEL_DISABLED' | 'MODEL_NOT_CONFIGURED' | 'MODEL_TIMEOUT' | 'MODEL_RATE_LIMITED' | 'MODEL_INVALID_RESPONSE' | 'MODEL_UNAVAILABLE' | 'MODEL_ASSISTED' | 'DETERMINISTIC_FALLBACK' | null;
   confirmed_at?: string | null;
   claim_type: 'OUTPUT_PREDICTION_AND_REASON';
   predicted_output: number | boolean | string | (number | boolean | string)[];
@@ -171,6 +172,7 @@ export interface InvariantOrMechanismClaim {
   critical_tokens?: string[];
   provider_confidence?: number | null;
   extraction_method: ExtractionMethod;
+  model_status?: 'MODEL_DISABLED' | 'MODEL_NOT_CONFIGURED' | 'MODEL_TIMEOUT' | 'MODEL_RATE_LIMITED' | 'MODEL_INVALID_RESPONSE' | 'MODEL_UNAVAILABLE' | 'MODEL_ASSISTED' | 'DETERMINISTIC_FALLBACK' | null;
   confirmed_at?: string | null;
   claim_type: 'INVARIANT_OR_MECHANISM_CLAIM';
   mechanism_summary: string;
@@ -182,6 +184,7 @@ export interface DomainValidityClaim {
   critical_tokens?: string[];
   provider_confidence?: number | null;
   extraction_method: ExtractionMethod;
+  model_status?: 'MODEL_DISABLED' | 'MODEL_NOT_CONFIGURED' | 'MODEL_TIMEOUT' | 'MODEL_RATE_LIMITED' | 'MODEL_INVALID_RESPONSE' | 'MODEL_UNAVAILABLE' | 'MODEL_ASSISTED' | 'DETERMINISTIC_FALLBACK' | null;
   confirmed_at?: string | null;
   claim_type: 'DOMAIN_VALIDITY_CLAIM';
   target_spec_version: SpecVersion;
@@ -193,6 +196,7 @@ export interface ClarificationOrHintClaim {
   critical_tokens?: string[];
   provider_confidence?: number | null;
   extraction_method: ExtractionMethod;
+  model_status?: 'MODEL_DISABLED' | 'MODEL_NOT_CONFIGURED' | 'MODEL_TIMEOUT' | 'MODEL_RATE_LIMITED' | 'MODEL_INVALID_RESPONSE' | 'MODEL_UNAVAILABLE' | 'MODEL_ASSISTED' | 'DETERMINISTIC_FALLBACK' | null;
   confirmed_at?: string | null;
   claim_type: 'CLARIFICATION_OR_HINT_REQUEST';
   question_text: string;
@@ -203,6 +207,7 @@ export interface UnsupportedClaim {
   critical_tokens?: string[];
   provider_confidence?: number | null;
   extraction_method: ExtractionMethod;
+  model_status?: 'MODEL_DISABLED' | 'MODEL_NOT_CONFIGURED' | 'MODEL_TIMEOUT' | 'MODEL_RATE_LIMITED' | 'MODEL_INVALID_RESPONSE' | 'MODEL_UNAVAILABLE' | 'MODEL_ASSISTED' | 'DETERMINISTIC_FALLBACK' | null;
   confirmed_at?: string | null;
   claim_type: 'UNSUPPORTED_CLAIM';
   raw_summary: string;

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { FALLBACK_BRANDING } from './config/branding';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { capability, readStudioTab, studioRequest, writeStudioTab, StudioError, type Graph, type Scenario, type StudioEdge, type StudioNode, type StudioSession, type Workspace } from './studioApi';
 import { RepositoryPanel } from './StudioRepository';
 import { StudioGraph } from './StudioGraph';
@@ -11,7 +12,7 @@ import './studio.css';
 
 const emptyGraph = (): Graph => ({ nodes: [], edges: [], assumptions: {} });
 const areaTabs = [{ id: 'design', label: 'System design' }, { id: 'repository', label: 'Codebase learning' }] as const;
-function StudioNav() { return <header className="studio-header"><a href="/dashboard" className="studio-brand">VIVA</a><nav aria-label="Main navigation"><a href="/dashboard">Home</a><a href="/library">Practice</a><a href="/paths">Learning paths</a><a href="/studio" aria-current="page">Design studio</a><a href="/progress">Progress</a></nav></header>; }
+function StudioNav() { return <header className="studio-header"><a href="/dashboard" className="studio-brand">{FALLBACK_BRANDING.productName}</a><nav aria-label="Main navigation"><a href="/dashboard">Home</a><a href="/library">Practice</a><a href="/paths">Learning paths</a><a href="/studio" aria-current="page">Design studio</a><a href="/progress">Progress</a></nav></header>; }
 export function StudioApp() {
   const [tab, setTab] = useState(readStudioTab);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -88,7 +89,13 @@ export function StudioApp() {
         : e instanceof Error ? e.message : String(e));
     } finally { activeActions.current--; setBusy(activeActions.current > 0); }
   }
-  async function ensureWorkspace(): Promise<Workspace> { if (tab.workspace) return tab.workspace; const workspace = { id: crypto.randomUUID(), token: capability() }; await studioRequest('/studio/workspaces', { method: 'POST', body: { workspace_id: workspace.id, workspace_token: workspace.token } }); savedTab({ ...tab, workspace }); return workspace; }
+  const ensureWorkspace = useCallback(async (): Promise<Workspace> => {
+    if (tab.workspace) return tab.workspace;
+    const workspace = { id: crypto.randomUUID(), token: capability() };
+    await studioRequest('/studio/workspaces', { method: 'POST', body: { workspace_id: workspace.id, workspace_token: workspace.token } });
+    savedTab({ ...tab, workspace });
+    return workspace;
+  }, [tab]);
   async function openSession(session: StudioSession) {
     const load = ++generation.current;
     const path = `/studio/sessions/${encodeURIComponent(session.id)}`;
@@ -249,7 +256,7 @@ export function StudioApp() {
       <StudioTabs label="Studio area" tabs={areaTabs} value={panel} onChange={changeArea}>
         {repositoryVisited && <div hidden={panel !== 'repository'}><RepositoryPanel workspace={tab.workspace} ensureWorkspace={ensureWorkspace} onSnapshot={setRepoSnapshot}
           session={selected} speechEpoch={snapshot?.epoch ?? 1} speechEvents={snapshot?.events ?? []} active={panel === 'repository'}
-          boundSnapshotId={snapshot?.repo_snapshot_id} onSessionChange={() => action(() => refreshSession())} /></div>}
+          boundSnapshotId={snapshot?.repo_snapshot_id} onSessionChange={() => action(() => refreshSession())} mentorMode /></div>}
         <div hidden={panel !== 'design'}>{!selected ?
           <StudioSetup scenarios={scenarios} scenario={scenario} onScenario={setScenario} mock={mock} onMock={setMock}
             duration={duration} onDuration={setDuration} posture={posture} onPosture={setPosture} busy={busy}

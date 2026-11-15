@@ -23,6 +23,10 @@ def application(path):
     app.state.settings = SimpleNamespace(database_path=path)
     app.include_router(studio_router, prefix='/api/v1')
     app.include_router(router, prefix='/api/v1')
+    from backend.app.interviews.routes import router as interviews_router
+    from backend.app.learning.service import record_interview_completion
+    app.include_router(interviews_router, prefix='/api/v1')
+    app.state.interview_completion_hook = record_interview_completion
     return app
 
 
@@ -234,6 +238,199 @@ def test_event_source_guards_atomic_rollback_and_deletion_cascade(learning):
         conn.execute('DELETE FROM studio_workspaces WHERE id=?', (headers['X-Workspace-Id'],))
         for table in ('learning_sessions', 'learning_answers', 'learning_events', 'learning_achievements'):
             assert conn.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
+
+
+def test_real_workspace_soft_delete_purges_learning_evidence(learning):
+    client, headers, path = learning
+    session = start(client, headers)
+    assert submit(client, headers, session, 'O(n)').status_code == 200
+    response = client.delete(f"/api/v1/studio/workspaces/{headers['X-Workspace-Id']}",
+                             headers={'Authorization': 'Bearer ' + headers['X-Workspace-Token'],
+                                      'X-Idempotency-Key': str(uuid.uuid4())})
+    assert response.status_code == 200, response.text
+    with closing(open_connection(path)) as conn:
+        for table in ('learning_sessions', 'learning_answers', 'learning_events',
+                      'learning_achievements', 'learning_external_events', 'learning_evidence_achievements'):
+            assert conn.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
+
+
+def test_recommendations_prioritize_resume_then_unverified_revision(learning):
+    client, headers, _ = learning
+    session = start(client, headers, 'apt-percent')
+    recommendations = client.get('/api/v1/learning/progress', headers=headers).json()['recommendations']
+    assert recommendations[0]['lesson_id'] == 'apt-percent'
+    for _ in range(5):
+        session = submit(client, headers, session, 'wrong').json()
+    recommendations = client.get('/api/v1/learning/progress', headers=headers).json()['recommendations']
+    assert recommendations[0]['lesson_id'] == 'apt-percent'
+    assert 'unverified' in recommendations[0]['reason']
+
+
+def test_consistency_badge_requires_three_consecutive_active_days_not_views(learning, monkeypatch):
+    import backend.app.learning.service as service
+    client, headers, path = learning
+    base = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    for offset in (2, 1, 0):
+        instant = (base - timedelta(days=offset)).isoformat()
+        monkeypatch.setattr(service, 'utc_now', lambda value=instant: value)
+        session = start(client, headers)
+        assert submit(client, headers, session, 'wrong').status_code == 200
+    progress = client.get('/api/v1/learning/progress', headers=headers).json()
+    badge = next(b for b in progress['achievements'] if b['id'] == 'three_study_days')
+    assert badge['source_event'] and progress['streak'] == 3
+    assert progress['lessons_completed'] == 0 and progress['topics_mastered'] == 0
+    with closing(open_connection(path)) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO learning_evidence_achievements(workspace_id,id,title,earned_at,source_event,source) VALUES(?,?,?,?,?,?)",
+                         (headers['X-Workspace-Id'], 'forged', 'Fake', instant, 'fake', 'learning_engine'))
+
+
+def test_observed_study_seconds_are_server_derived_and_capped(learning, monkeypatch):
+    import backend.app.learning.service as service
+    client, headers, _ = learning
+    base = datetime.now(timezone.utc)
+    monkeypatch.setattr(service, 'utc_now', lambda: base.isoformat())
+    session = start(client, headers)
+    monkeypatch.setattr(service, 'utc_now', lambda: (base + timedelta(seconds=17)).isoformat())
+    session = submit(client, headers, session, 'wrong').json()
+    assert client.get('/api/v1/learning/progress', headers=headers).json()['study_seconds'] == 17
+    monkeypatch.setattr(service, 'utc_now', lambda: (base + timedelta(seconds=1017)).isoformat())
+    assert submit(client, headers, session, 'O(n)').status_code == 200
+    assert client.get('/api/v1/learning/progress', headers=headers).json()['study_seconds'] == 317
+
+
+def test_engine_source_cannot_forge_completion_without_correct_owned_answer(learning):
+    client, headers, path = learning
+    session = start(client, headers)
+    with closing(open_connection(path)) as conn:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO learning_events(id,workspace_id,session_id,run,kind,source,answer_id,study_seconds,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                         ('fake', headers['X-Workspace-Id'], session['id'], 1, 'lesson.completed',
+                          'learning_engine', None, 0, datetime.now(timezone.utc).isoformat()))
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE learning_sessions SET state='completed' WHERE id=?", (session['id'],))
+
+
+def test_server_enforces_owned_prerequisite_completion_before_creation(learning):
+    client, headers, path = learning
+    body = {'lesson_id': 'dsa-binary-search', 'mode': 'practice', 'language_mode': 'english'}
+    assert client.post('/api/v1/learning/sessions', headers=headers, json=body).status_code == 409
+    other = workspace(client, 'z')
+    array = start(client, other, 'dsa-complexity')
+    assert submit(client, other, array, 'O(n)').status_code == 200
+    array = start(client, other, 'dsa-arrays')
+    assert submit(client, other, array, '5').status_code == 200
+    assert client.post('/api/v1/learning/sessions', headers=headers, json=body).status_code == 409
+    with closing(open_connection(path)) as conn:
+        assert conn.execute('SELECT count(*) FROM learning_sessions WHERE workspace_id=?',
+                            (headers['X-Workspace-Id'],)).fetchone()[0] == 0
+    prerequisite = start(client, headers)
+    assert submit(client, headers, prerequisite, 'O(n)').status_code == 200
+    array = start(client, headers, 'dsa-arrays')
+    assert submit(client, headers, array, '5').status_code == 200
+    assert client.post('/api/v1/learning/sessions', headers=headers, json=body).status_code == 200
+
+
+def test_first_interview_award_uses_durable_source_and_deletion_cascades(learning):
+    from backend.app.learning.service import record_interview_completion
+    client, headers, path = learning
+    created = client.post('/api/v1/interviews/sessions', headers=headers, json={
+        'type': 'cs', 'difficulty': 'beginner', 'topics': ['networking'],
+        'duration_minutes': 5, 'language_mode': 'en-IN'})
+    assert created.status_code == 200, created.text
+    session = created.json()
+    with closing(open_connection(path)) as conn:
+        with pytest.raises(ValueError):
+            record_interview_completion(conn, headers['X-Workspace-Id'], {'session_id': session['id']})
+    finished = client.post(f"/api/v1/interviews/sessions/{session['id']}/finish", headers=headers,
+                           json={'expected_epoch': session['epoch']})
+    assert finished.status_code == 200, finished.text
+    progress = client.get('/api/v1/learning/progress', headers=headers).json()
+    assert progress['interviews_completed'] == 1 and progress['topics_mastered'] == 0
+    badge = next(b for b in progress['achievements'] if b['id'] == 'first_interview')
+    assert badge['source_event'].startswith('interview:')
+    assert any(r['lesson_id'] == 'cs-dns' and 'unassessed' in r['reason']
+               for r in progress['recommendations'])
+    with closing(open_connection(path)) as conn:
+        with pytest.raises(ValueError):
+            record_interview_completion(conn, 'another-workspace', {'session_id': session['id']})
+        assert record_interview_completion(conn, headers['X-Workspace-Id'], {'session_id': session['id']}) == badge['source_event']
+        assert conn.execute('SELECT count(*) FROM learning_evidence_achievements').fetchone()[0] == 1
+        conn.execute('DELETE FROM interview_sessions WHERE id=?', (session['id'],))
+        assert conn.execute('SELECT count(*) FROM learning_external_events').fetchone()[0] == 0
+        assert conn.execute('SELECT count(*) FROM learning_evidence_achievements').fetchone()[0] == 0
+
+
+def test_interview_completion_activity_keeps_report_session_id_and_deletion_removes_it(learning):
+    client, headers, path = learning
+    other = workspace(client, 'z')
+    body = {'type': 'cs', 'difficulty': 'beginner', 'topics': ['networking'],
+            'duration_minutes': 5, 'language_mode': 'en-IN'}
+    created = client.post('/api/v1/interviews/sessions', headers=headers, json=body)
+    assert created.status_code == 200, created.text
+    first = created.json()
+    url = f"/api/v1/interviews/sessions/{first['id']}"
+    finished = client.post(url + '/finish', headers=headers,
+                           json={'expected_epoch': first['epoch']})
+    assert finished.status_code == 200, finished.text
+    second = client.post('/api/v1/interviews/sessions', headers=headers, json=body)
+    assert second.status_code == 200, second.text
+    assert second.json()['id'] != first['id'] and second.json()['report'] is None
+    report_url = f"/api/v1/interviews/reports/{first['id']}"
+    assert client.get(report_url, headers=headers).json() == finished.json()
+    assert client.get(report_url, headers=other).status_code == 404
+
+    progress = client.get('/api/v1/learning/progress', headers=headers).json()
+    completions = [item for item in progress['recent_activity']
+                   if item['type'] == 'interview.completed']
+    assert progress['interviews_completed'] == 1
+    assert len(completions) == 1
+    assert completions[0]['session_id'] == first['id']
+    foreign = client.get('/api/v1/learning/progress', headers=other).json()
+    assert foreign['interviews_completed'] == 0 and foreign['recent_activity'] == []
+
+    with closing(open_connection(path)) as conn:
+        conn.execute('DELETE FROM interview_sessions WHERE id=?', (first['id'],))
+    assert client.get(report_url, headers=headers).status_code == 404
+    assert client.get(url, headers=headers).status_code == 404
+    after = client.get('/api/v1/learning/progress', headers=headers).json()
+    assert after['interviews_completed'] == 0
+    assert not any(item['session_id'] == first['id'] for item in after['recent_activity'])
+    assert not any(badge['id'] == 'first_interview' for badge in after['achievements'])
+    assert client.get(f"/api/v1/interviews/sessions/{second.json()['id']}",
+                      headers=headers).json()['state'] == 'active'
+
+
+def test_completed_lesson_report_and_activity_survive_new_session_until_deletion(learning):
+    client, headers, path = learning
+    other = workspace(client, 'z')
+    first = start(client, headers)
+    completed = submit(client, headers, first, 'O(n)')
+    assert completed.status_code == 200, completed.text
+    assert completed.json()['state'] == 'completed'
+    assert completed.json()['report']['lesson_completed'] is True
+    second = start(client, headers)
+    assert second['id'] != first['id'] and second['report'] is None
+    url = f"/api/v1/learning/sessions/{first['id']}"
+    recovered = client.get(url, headers=headers)
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json() == completed.json()
+    assert client.get(url, headers=other).status_code == 404
+    progress = client.get('/api/v1/learning/progress', headers=headers).json()
+    completions = [item for item in progress['recent_activity']
+                   if item['type'] == 'lesson.completed']
+    assert progress['lessons_completed'] == 1 and len(completions) == 1
+    assert completions[0]['session_id'] == first['id']
+    assert client.get('/api/v1/learning/progress', headers=other).json()['recent_activity'] == []
+
+    with closing(open_connection(path)) as conn:
+        conn.execute('DELETE FROM learning_sessions WHERE id=?', (first['id'],))
+    assert client.get(url, headers=headers).status_code == 404
+    after = client.get('/api/v1/learning/progress', headers=headers).json()
+    assert after['lessons_completed'] == 0 and after['completed_lesson_ids'] == []
+    assert not any(item['session_id'] == first['id'] for item in after['recent_activity'])
+    assert client.get(f"/api/v1/learning/sessions/{second['id']}",
+                      headers=headers).json()['state'] == 'active'
 
 
 def test_prerequisite_recommendations_and_expired_capability(learning):

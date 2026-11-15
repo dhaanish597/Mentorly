@@ -45,6 +45,7 @@ class SpeechService:
         self.gatekeeper = SpeechGatekeeper(
             self.adapter,
             db_path=db_path,
+            queue_wait_timeout_sec=25.0,
             per_session_stt_seconds=configured.max_stt_seconds_per_session,
             per_session_tts_chars=configured.max_tts_chars_per_session,
             global_daily_call_limit=configured.global_daily_call_limit,

@@ -407,10 +407,10 @@ button.primary { background:var(--horizon-coral, #ff735c); border-color:var(--ho
 .thought-line { width:48px; height:3px; background:#ff735c; margin:28px 0; }
 .landing-process { background:#24152f; color:#fff8ef; padding:75px max(28px,calc((100vw - 1096px)/2)); display:grid; grid-template-columns:1fr 1.3fr; gap:60px; }
 .landing-process h2,.landing-end h2 { font-size:clamp(30px,4vw,44px); }
-.landing-process > div p,.landing-process li span { color:#dfd1e0; }
+.landing-process > div p,.landing-process li span:not(.step-icon) { color:#dfd1e0; }
 .landing-process ol { margin:0; padding-left:24px; display:grid; gap:20px; }
 .landing-process li { padding-left:8px; }
-.landing-process li strong,.landing-process li span { display:block; }
+.landing-process li strong,.landing-process li span:not(.step-icon) { display:block; }
 .landing-process li strong { font:22px Georgia,serif; margin-bottom:5px; }
 .landing-end { padding-top:80px; padding-bottom:90px; }
 .landing footer { border-top:1px solid #eadfce; padding-top:25px; padding-bottom:25px; font-weight:700; }

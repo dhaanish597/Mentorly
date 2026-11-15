@@ -3,7 +3,7 @@ import { FALLBACK_BRANDING } from '../config/branding';
 
 import { TEACHERS, type TeacherConfig, type TeacherId } from '../config/teachers';
 
-export type IconName = 'home' | 'code' | 'paths' | 'progress' | 'design' | 'mic' | 'arrow' | 'settings' | 'book' | 'check' | 'flame' | 'award' | 'zap' | 'star' | 'rocket' | 'compass' | 'shield' | 'clock' | 'target' | 'refresh';
+export type IconName = 'home' | 'code' | 'paths' | 'progress' | 'design' | 'mic' | 'arrow' | 'settings' | 'book' | 'check' | 'flame' | 'award' | 'zap' | 'star' | 'rocket' | 'compass' | 'shield' | 'clock' | 'target' | 'refresh' | 'warning' | 'volume' | 'play' | 'pause' | 'copy';
 const paths: Record<IconName, ReactNode> = {
   home: <><path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/></>,
   code: <path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 20"/>,
@@ -25,6 +25,11 @@ const paths: Record<IconName, ReactNode> = {
   clock: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
   target: <><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>,
   refresh: <><path d="M21.5 2v6h-6M2.5 22v-6h6"/><path d="M19.07 15.57A8 8 0 0 1 5 19.5L2.5 16M4.93 8.43A8 8 0 0 1 19 4.5L21.5 8"/></>,
+  warning: <><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+  volume: <><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></>,
+  play: <polygon points="5 3 19 12 5 21 5 3"/>,
+  pause: <><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></>,
+  copy: <><rect width="13" height="13" x="9" y="9" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
 };
 export function Icon({ name, className = '' }: { name: IconName; className?: string }) {
   return <svg className={`horizon-icon ${className}`} viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.code}</svg>;
@@ -52,7 +57,7 @@ export function MentorPortrait({
   alt?: string;
 }) {
   const teacherConfig = typeof teacher === 'string' ? (TEACHERS[teacher] ?? TEACHERS.astra) : teacher;
-  const defaultAlt = teacherConfig.id === 'astra' ? 'Your VIVA mentor' : `Your mentor: ${teacherConfig.name} (${teacherConfig.subject})`;
+  const defaultAlt = teacherConfig.id === 'astra' ? `Your ${FALLBACK_BRANDING.productName} mentor` : `Your mentor: ${teacherConfig.name} (${teacherConfig.subject})`;
   return (
     <div className={`mentor-portrait mentor-${state} ${className}`} data-teacher={teacherConfig.id}>
       <img

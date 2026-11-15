@@ -312,7 +312,7 @@ def test_conversation_disconnect_cancels_synthesis_without_confirmation(conversa
         return True
 
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
-        speech=SimpleNamespace(synthesize=synthesis))), is_disconnected=disconnected)
+        speech=SimpleNamespace(synthesize=synthesis), settings=conversation.app.state.settings)), is_disconnected=disconnected)
 
     async def run():
         with pytest.raises(asyncio.CancelledError):
@@ -322,3 +322,127 @@ def test_conversation_disconnect_cancels_synthesis_without_confirmation(conversa
     asyncio.run(run())
     assert cancelled == [True]
     assert conversation.repo.get_turn(conversation.sid, conversation.turn.id) == conversation.turn
+
+
+def test_model_reply_uses_current_words_and_is_reused_for_voice(conversation, monkeypatch):
+    import httpx
+    from pydantic import SecretStr
+    from backend.app.coaching import conversation as dialogue
+    settings = conversation.app.state.settings
+    settings.groq_api_key = SecretStr('configured-test-credential')
+    settings.llm_model = 'test-model'
+    payloads = []
+    reply = 'You described maintaining the current sum. When it reaches the target, which candidate length would you record?'
+
+    class ModelBoundary:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            payloads.append(kwargs['json'])
+            return httpx.Response(200, request=httpx.Request('POST', url), json={
+                'choices': [{'message': {'content': json.dumps({'text': reply})}}]})
+
+    monkeypatch.setattr(dialogue.httpx, 'AsyncClient', ModelBoundary)
+    text = conversation.client.post(f'/api/v1/sessions/{conversation.sid}/conversation/text',
+        json=conversation.payload, headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert text.status_code == 200, text.text
+    assert text.json()['source'] == 'model_assisted'
+    assert text.json()['text'] == reply
+    assert conversation.turn.normalized_transcript in payloads[0]['messages'][1]['content']
+    assert 'reference_output' not in payloads[0]['messages'][1]['content']
+    voice = conversation.post()
+    assert voice.status_code == 200, voice.text
+    assert unquote(voice.headers['x-coach-text']) == reply
+    assert len(payloads) == 1
+    assert conversation.calls[0][1] == reply
+
+
+def test_re_record_uses_new_transcript_and_preserves_actual_history(conversation, monkeypatch):
+    from backend.app.db.migrations import open_connection
+    first = conversation.client.post(f'/api/v1/sessions/{conversation.sid}/conversation/text',
+        json=conversation.payload, headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert first.status_code == 200
+    turn, attempt = conversation.repo.create_or_reuse_turn(session_id=conversation.sid,
+        code_version_id=1, challenge_id=None, transport_mode='TEXT', state='AWAITING_CLAIM_CONFIRMATION',
+        raw_transcript='All values are positive, so removing one lowers the sum.',
+        normalized_transcript='All values are positive, so removing one lowers the sum.', claim_json=None)
+    second = conversation.client.post(f'/api/v1/sessions/{conversation.sid}/conversation/text',
+        json={'revision': conversation.machine.build_revision_ref(conversation.sid).model_dump(mode='json'), 'turn_id': turn.id},
+        headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert second.status_code == 200, second.text
+    assert second.json()['text'] != first.json()['text']
+    with open_connection(conversation.app.state.settings.database_path) as db:
+        rows = db.execute('SELECT learner_transcript FROM dsa_conversation_replies ORDER BY created_at').fetchall()
+    assert [r[0] for r in rows] == [conversation.turn.normalized_transcript, turn.normalized_transcript]
+
+
+def test_changed_introduction_cannot_repeat_the_previous_model_question(conversation, monkeypatch):
+    import httpx
+    from pydantic import SecretStr
+    from backend.app.coaching import conversation as dialogue
+    settings = conversation.app.state.settings
+    settings.groq_api_key = SecretStr('configured-test-credential')
+    settings.llm_model = 'test-model'
+    question = 'What condition tells you to stop shrinking and move the right pointer again?'
+    replies = iter(['You described a window. ' + question,
+                    'You are now discussing linear time. ' + question])
+    calls = []
+
+    class ModelBoundary:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            calls.append(kwargs['json'])
+            return httpx.Response(200, request=httpx.Request('POST', url), json={
+                'choices': [{'message': {'content': json.dumps({'text': next(replies)})}}]})
+
+    monkeypatch.setattr(dialogue.httpx, 'AsyncClient', ModelBoundary)
+    path = f'/api/v1/sessions/{conversation.sid}/conversation/text'
+    first = conversation.client.post(path, json=conversation.payload,
+        headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert first.status_code == 200 and first.json()['source'] == 'model_assisted'
+    turn, _ = conversation.repo.create_or_reuse_turn(session_id=conversation.sid,
+        code_version_id=1, challenge_id=None, transport_mode='TEXT', state='AWAITING_CLAIM_CONFIRMATION',
+        raw_transcript='Each pointer visits each element once, so time is O(n).',
+        normalized_transcript='Each pointer visits each element once, so time is O(n).', claim_json=None)
+    payload = {'revision': conversation.machine.build_revision_ref(conversation.sid).model_dump(mode='json'), 'turn_id': turn.id}
+    second = conversation.client.post(path, json=payload,
+        headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert second.status_code == 200
+    assert second.json()['source'] == 'authored_adaptive_fallback'
+    assert question not in second.json()['text']
+    assert 'space' in second.json()['text'].lower()
+    cached = conversation.client.post(path, json=payload,
+        headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert cached.json()['text'] == second.json()['text']
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('failure,expected_leases', [('connect', 0), ('read', 1)])
+def test_connection_failure_releases_capacity_but_unknown_outcome_retains_it(conversation, monkeypatch, failure, expected_leases):
+    import httpx
+    from contextlib import closing
+    from pydantic import SecretStr
+    from backend.app.coaching import conversation as dialogue
+    from backend.app.db.migrations import open_connection
+    settings = conversation.app.state.settings
+    settings.groq_api_key = SecretStr('configured-test-credential')
+    settings.llm_model = 'test-model'
+
+    class ModelBoundary:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs):
+            error = httpx.ConnectError if failure == 'connect' else httpx.ReadTimeout
+            raise error('Controlled model boundary', request=httpx.Request('POST', url))
+
+    monkeypatch.setattr(dialogue.httpx, 'AsyncClient', ModelBoundary)
+    response = conversation.client.post(f'/api/v1/sessions/{conversation.sid}/conversation/text',
+        json=conversation.payload, headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
+    assert response.status_code == 200
+    assert response.json()['source'] == 'authored_adaptive_fallback'
+    with closing(open_connection(settings.database_path)) as db:
+        assert db.execute('SELECT count(*) FROM model_dispatch_leases').fetchone()[0] == expected_leases

@@ -4,7 +4,7 @@ import { allLessons, lessonUrl, missingPrerequisites, prerequisiteMessage } from
 import { LessonPractice } from './LessonPractice';
 import { useLearningData } from './useLearningData';
 
-export function LessonPage({ lessonId }: { lessonId: string }) {
+export function LessonPage({ lessonId, search = '' }: { lessonId: string; search?: string }) {
   const data = useLearningData();
   const lessons = data.catalog ? allLessons(data.catalog) : [];
   const lesson = lessons.find(item => item.id === lessonId);
@@ -25,7 +25,7 @@ export function LessonPage({ lessonId }: { lessonId: string }) {
       })}</nav><a className="collection-action" href="/learn">All modules <Icon name="arrow" /></a></aside>
       <div className="lesson-content">{locked ? <section className="learning-empty"><h2>Build the foundation first</h2><p>{prerequisiteMessage(lesson, data.catalog, completed)}</p><a href="/learn">Back to curriculum</a></section> : <>
         <section className="lesson-reading"><p className="learning-eyebrow">What you’ll understand</p><ul>{lesson.objectives.map(item => <li key={item}>{item}</li>)}</ul><h2>The idea</h2><p className="lesson-explanation">{lesson.explanation}</p><h3>A worked example</h3><pre><code>{lesson.example}</code></pre></section>
-        <LessonPractice key={lesson.id} lesson={lesson} workspace={data.workspace} onComplete={data.reload} />
+        <LessonPractice key={lesson.id} lesson={lesson} workspace={data.workspace} initialSessionId={new URLSearchParams(search).get('session') ?? undefined} onComplete={data.reload} />
         <section className="lesson-transfer"><div><h2>Take it into practice</h2><p>Use this idea in a problem, and explain the decisions you make.</p></div><a href={lesson.practice_url} className="collection-action">Open practice <Icon name="arrow" /></a></section>
       </>}
       <nav className="lesson-pagination" aria-label="Previous and next lesson">{previous && !missingPrerequisites(previous, completed).length && <a href={lessonUrl(previous.id)}>Previous lesson: {previous.title}</a>}{next && !missingPrerequisites(next, completed).length && <a href={lessonUrl(next.id)}>Next lesson: {next.title} <Icon name="arrow" /></a>}</nav></div></div>

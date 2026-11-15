@@ -65,6 +65,8 @@ class OfflineSpeech:
 
     async def stream_synthesize(self, sid, text, revision, **kwargs):
         self.calls.append(('stream', sid, text, revision, kwargs))
+        # Synthesis selectors are request fields, not outbound AudioEvent metadata.
+        kwargs = {key: value for key, value in kwargs.items() if key == 'playback_id'}
         yield AudioEvent(event_type='start', request_id='offline-stream', **kwargs)
         if self.mode == 'error':
             raise RuntimeError('Private provider diagnostics must not reach the client')

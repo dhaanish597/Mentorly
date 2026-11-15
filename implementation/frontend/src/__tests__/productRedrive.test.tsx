@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RedrivePanel } from '../features/redrive/RedrivePanel';
 import { DefenseFollowup } from '../features/redrive/DefenseFollowup';
@@ -114,6 +115,32 @@ it('renders source-adaptive defense followups from actual recorded phase feedbac
   expect(screen.getByText(/Which cited fact/i)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /main.py/ }));
   expect(props.onOpenSource).toHaveBeenCalledWith(citation);
+});
+
+it('exports a source-cited learning record without workspace or session capabilities', async () => {
+  let exported: Blob | undefined;
+  vi.stubGlobal('URL', { createObjectURL: vi.fn((blob: Blob) => { exported = blob; return 'blob:learning'; }), revokeObjectURL: vi.fn() });
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  render(<RedrivePanel {...props} session={session} />);
+  await screen.findByRole('heading', { name: 'One source file' });
+  fireEvent.click(screen.getByRole('button', { name: 'Export beginner learning record' }));
+  const record = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(exported!);
+  });
+  expect(JSON.parse(record).version).toBe('redrive-v1');
+  expect(record).toContain(citation.chunk_hash);
+  expect(record).not.toContain(workspace.token);
+  expect(record).not.toContain(session.token);
+});
+
+it('supports recorded source-adaptive failure and reflection prompts but abstains without citations', () => {
+  const view = render(<DefenseFollowup phase="defend" answer="A timeout could occur" citations={[citation]} onOpenSource={props.onOpenSource} />);
+  expect(screen.getByText(/Which cited condition/)).toBeTruthy();
+  view.rerender(<DefenseFollowup phase="reflect" answer="A changed requirement" citations={[citation]} onOpenSource={props.onOpenSource} />);
+  expect(screen.getByText(/Which cited constraint/)).toBeTruthy();
+  view.rerender(<DefenseFollowup phase="reflect" answer="No evidence" citations={[]} onOpenSource={props.onOpenSource} />);
+  expect(screen.queryByRole('complementary')).toBeNull();
 });
 
 it('rejects malformed source references instead of rendering an invalid lesson', async () => {

@@ -51,6 +51,7 @@ from backend.app.speech.gnani_adapter import (
     AssembledTTSSynthesis,
     GnaniSpeechAdapter,
     GnaniTransportError,
+    _RETRYABLE_HTTP_STATUS_CODES,
 )
 from backend.app.speech.pre_tts_normalizer import to_speakable
 
@@ -88,6 +89,11 @@ def accounted_speech_totals(conn: sqlite3.Connection) -> tuple[float, int]:
         row = conn.execute(f"SELECT COALESCE(SUM(stt_seconds),0),COALESCE(SUM(tts_chars),0) FROM {table} WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN')").fetchone()
         seconds += row[0]
         chars += row[1]
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_deleted_totals'").fetchone():
+        # Duration/character caps are lifetime budgets, unlike the daily call limit.
+        retained = conn.execute('SELECT COALESCE(SUM(stt_seconds),0),COALESCE(SUM(tts_chars),0) FROM module_speech_deleted_totals').fetchone()
+        seconds += retained[0]
+        chars += retained[1]
     return seconds, chars
 
 
@@ -101,7 +107,7 @@ class SpeechGatekeeper:
         db_path: Path | str = ":memory:",
         max_concurrency: int = 1,
         max_waiting: int = 10,
-        queue_wait_timeout_sec: float = 6.0,
+        queue_wait_timeout_sec: float = 25.0,
         max_stt_seconds_budget: float = 7200.0,
         max_tts_chars_budget: int = 250_000,
         retry_backoff_base_sec: float = 0.25,
@@ -382,9 +388,9 @@ class SpeechGatekeeper:
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN stt_seconds ELSE 0.0 END), 0.0),
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN tts_chars ELSE 0 END), 0),
                     COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN tts_chars ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN operation_type = 'STT' AND status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN request_count ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN operation_type = 'TTS' AND status = 'COMMITTED' AND COALESCE(cache_hit, 0) = 0 AND COALESCE(uncertain, 0) = 0 THEN request_count ELSE 0 END), 0),
-                    COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN request_count ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN operation_type = 'STT' AND status = 'COMMITTED' AND COALESCE(uncertain, 0) = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN operation_type = 'TTS' AND status = 'COMMITTED' AND COALESCE(cache_hit, 0) = 0 AND COALESCE(uncertain, 0) = 0 THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN status = 'COMMITTED' AND COALESCE(uncertain, 0) = 1 THEN 1 ELSE 0 END), 0)
                 FROM usage_ledger;
                 """
             ).fetchone()
@@ -715,8 +721,7 @@ class SpeechGatekeeper:
                     if exc.status_code is not None:
                         dispatched = False  # Known rejection, not unknown billed audio.
                     if (
-                        exc.status_code == 429
-                        and exc.retryable
+                        (exc.status_code == 429 or exc.retryable or (exc.status_code is not None and exc.status_code in _RETRYABLE_HTTP_STATUS_CODES))
                         and attempt < self.max_429_retries
                     ):
                         self._reserve_retry_calls(res_id, physical_calls + 1)
@@ -832,10 +837,9 @@ class SpeechGatekeeper:
                     if exc.status_code is not None and exc.completed_chars == 0 and not exc.audio_emitted:
                         dispatched = False
                     if (
-                        exc.status_code == 429
+                        (exc.status_code == 429 or exc.retryable or (exc.status_code is not None and exc.status_code in _RETRYABLE_HTTP_STATUS_CODES))
                         and exc.completed_chars == 0
                         and not exc.audio_emitted
-                        and exc.retryable
                         and attempt < self.max_429_retries
                     ):
                         self._reserve_retry_calls(res_id, physical_calls + len(speakable_chunks))

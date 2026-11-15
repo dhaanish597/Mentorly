@@ -180,7 +180,8 @@ async def run_provider(req,sid,authorization,epoch,key,operation,digest,seconds,
             check_current()
             status='UNCERTAIN'
             # wait_for cancels and awaits adapter cleanup before the lease releases.
-            result=await asyncio.wait_for(dispatch(),timeout=PROVIDER_DEADLINE_SECONDS)
+            from backend.app.speech.routes import _await_connected_voice
+            result=await asyncio.wait_for(_await_connected_voice(req,dispatch()),timeout=PROVIDER_DEADLINE_SECONDS)
             status='COMMITTED'
             check_current()
         return result

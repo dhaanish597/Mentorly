@@ -38,6 +38,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
+        protected_namespaces=("settings_",),
     )
 
     def __init__(self, **values):
@@ -66,6 +67,9 @@ class Settings(BaseSettings):
 
     branding_config_path: Path = Field(default=_DEFAULT_BRANDING_PATH)
     database_path: Path = Field(default=Path("./data/vcc.db"))
+    database_url: SecretStr | None = None
+    database_schema: str = "viva_app"
+    cloud_runtime: bool = False
     cors_origins: str = "http://localhost:5173"
 
     allow_public_custom_code: bool = False
@@ -104,9 +108,20 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     llm_model: str = ""
     llm_timeout_ms: int = Field(default=1200, ge=100)
+    conversation_timeout_ms: int = Field(default=5000, ge=100, le=10000)
     model_daily_call_limit: int = Field(default=40, ge=1, le=10000)
     model_session_call_limit: int = Field(default=12, ge=1, le=1000)
     model_max_concurrency: int = Field(default=1, ge=1, le=1)
+
+    @property
+    def database_target(self):
+        """Keep credentials inside a secret-safe database target."""
+        if self.database_url is not None:
+            from backend.app.db.postgres.runtime import PostgresTarget
+            return PostgresTarget(self.database_url.get_secret_value(), schema=self.database_schema)
+        if self.cloud_runtime:
+            raise RuntimeError("Cloud deployment requires a shared PostgreSQL database.")
+        return self.database_path
 
     @field_validator("gnani_api_key", "groq_api_key", "internal_worker_secret", "operations_token", mode="before")
     @classmethod
@@ -134,10 +149,14 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return cached application settings."""
-    # No cwd-based discovery. Only the server process's explicit opt-in loads a file.
     path = os.environ.get("VCC_ENV_FILE", "").strip()
     if path and not Path(path).is_file():
         raise RuntimeError("The explicitly selected server environment file is unavailable.")
+    if not path:
+        for candidate in (_REPO_ROOT / ".env", _REPO_ROOT.parent / ".env"):
+            if candidate.is_file():
+                path = str(candidate)
+                break
     return Settings(_env_file=path or None)
 
 

@@ -1,9 +1,11 @@
+import { FALLBACK_BRANDING } from './config/branding';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { studioRequest, type Workspace, type StudioSession } from './studioApi';
 import { StudioVoice, type StudioVoiceEvent } from './StudioVoice';
 import { Icon, MentorPortrait } from './components/HorizonVisuals';
 import { RedrivePanel } from './features/redrive/RedrivePanel';
 import { DefenseFollowup } from './features/redrive/DefenseFollowup';
+import { CodebaseLearningView } from './features/codebase/CodebaseLearningView';
 import './repository-workspace.css';
 
 type Snapshot = { snapshot_id: string; status: string; files_indexed?: number; total_files?: number; coverage_ratio?: number; failure_code?: string };
@@ -33,6 +35,8 @@ export type RepositoryPanelProps = {
   onSessionChange?: () => void | Promise<void>;
   /** Hidden panels retain learning state but must release voice capture / playback. */
   active?: boolean;
+  /** Whether to use the voice-first codebase learning mentor experience. */
+  mentorMode?: boolean;
 };
 const TAB_KEY = 'viva-repo-tab-v1';
 const MAX_CITATIONS = 10;
@@ -47,7 +51,10 @@ const citationOf = ({ path, symbol, start_line, end_line, chunk_hash }: SearchHi
 const isDoc = (path: string) => /\.(md|rst|txt)$/i.test(path);
 const sameCitation = (left: Citation, right: Citation) => left.path === right.path && left.chunk_hash === right.chunk_hash && left.start_line === right.start_line && left.end_line === right.end_line;
 
-export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, session, speechEpoch = 1, speechEvents = [], boundSnapshotId, onSessionChange, active: panelActive = true }: RepositoryPanelProps) {
+export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, session, speechEpoch = 1, speechEvents = [], boundSnapshotId, onSessionChange, active: panelActive = true, mentorMode = false }: RepositoryPanelProps) {
+  if (mentorMode) {
+    return <CodebaseLearningView workspace={workspace} ensureWorkspace={ensureWorkspace} active={panelActive} />;
+  }
   const activeBoundSnapshotId = session ? boundSnapshotId ?? null : null;
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [explorationImport, setExplorationImport] = useState<Snapshot | null>(null);
@@ -420,7 +427,7 @@ function ImportSetup({ kind, source, file, busy, onKind, onSource, onFile, onImp
   function select(index: number) { onKind(sources[index].kind); document.getElementById(`${id}-${sources[index].kind}`)?.focus(); }
   return <form className="repo-import-form" onSubmit={event => { event.preventDefault(); onImport(); }}>
     <div className="repo-source-tabs" role="tablist" aria-label="Repository source">{sources.map((item, index) => <button type="button" role="tab" key={item.kind} id={`${id}-${item.kind}`} aria-selected={kind === item.kind} aria-controls={`${id}-source`} tabIndex={kind === item.kind ? 0 : -1} disabled={busy} onClick={() => onKind(item.kind)} onKeyDown={event => { if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); select((index + (event.key === 'ArrowRight' ? 1 : sources.length - 1)) % sources.length); } else if (event.key === 'Home' || event.key === 'End') { event.preventDefault(); select(event.key === 'Home' ? 0 : sources.length - 1); } }}>{item.label}</button>)}</div>
-    <div role="tabpanel" id={`${id}-source`} aria-labelledby={`${id}-${kind}`} className="repo-import-row">{kind === 'golden_curated' ? <label>Example<select disabled={busy} value={source} onChange={event => onSource(event.target.value)}><option value="REPO-EXP-01">VIVA architecture</option><option value="REPO-EXP-02">Event-driven service</option></select></label> : kind === 'public_git_url' ? <label>Public HTTPS URL<input key="public-url" type="url" required disabled={busy} value={source} placeholder="https://github.com/owner/repository" onChange={event => onSource(event.target.value)} /></label> : <label>ZIP archive<input key="zip-file" type="file" disabled={busy} accept=".zip,application/zip" onChange={event => onFile(event.target.files?.[0] ?? null)} /></label>}<button type="submit" className="primary" disabled={busy || (kind === 'zip' ? !file : !source.trim())}>Import and index<Icon name="arrow" /></button></div>
+    <div role="tabpanel" id={`${id}-source`} aria-labelledby={`${id}-${kind}`} className="repo-import-row">{kind === 'golden_curated' ? <label>Example<select disabled={busy} value={source} onChange={event => onSource(event.target.value)}><option value="REPO-EXP-01">{FALLBACK_BRANDING.productName} architecture</option><option value="REPO-EXP-02">Event-driven service</option></select></label> : kind === 'public_git_url' ? <label>Public HTTPS URL<input key="public-url" type="url" required disabled={busy} value={source} placeholder="https://github.com/owner/repository" onChange={event => onSource(event.target.value)} /></label> : <label>ZIP archive<input key="zip-file" type="file" disabled={busy} accept=".zip,application/zip" onChange={event => onFile(event.target.files?.[0] ?? null)} /></label>}<button type="submit" className="primary" disabled={busy || (kind === 'zip' ? !file : !source.trim())}>Import and index<Icon name="arrow" /></button></div>
   </form>;
 }
 function Citations({ items, onOpen }: { items: CitationView[]; onOpen: (path: string) => void }) {

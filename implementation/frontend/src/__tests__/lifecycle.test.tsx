@@ -2,6 +2,8 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../services/apiClient';
+import * as languages from '../voice/languages';
+import { speechCapabilitiesFixture } from './fixtures/speechCapabilities';
 import { AudioPlayer } from '../services/audioPlayer';
 import { AudioRecorder } from '../services/audioRecorder';
 import type { Challenge, EvidenceArtifact, RevisionRef, TraceExecutionReport } from '../types/api';
@@ -25,6 +27,7 @@ async function restore(overrides = {}): Promise<void> {
   if (!tools.closest('details')?.open) fireEvent.click(tools);
 }
 beforeEach(() => {
+  vi.spyOn(languages, 'fetchSpeechCapabilities').mockResolvedValue(speechCapabilitiesFixture);
   localStorage.clear(); history.replaceState(null, '', '/');
   localStorage.setItem('vcc-product-v1', JSON.stringify({ inputChoice: 'voice' }));
   vi.spyOn(api.apiClient, 'getHealth').mockResolvedValue({ status: 'ok', service: 'test', phase: 'test', version: 'test', custom_code_execution_enabled: false, product_name: 'Coach', product_name_status: 'TEST' });
@@ -38,6 +41,7 @@ afterEach(() => { cleanup(); sessionStorage.clear(); vi.restoreAllMocks(); vi.un
 describe('Reviewer lifecycle regressions', () => {
   it('keeps hidden standalone verifier output and oracle privileged even if present in payload', async () => {
     await restore({ challenges: [{ ...challenge, reveal_state: 'HIDDEN' }], evidence_artifacts: [], trace_report: null, coaching: null, verification_report: artifact.verification_report });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Evidence' }));
     const comparison = screen.getByRole('region', { name: 'Execution & Prediction Comparison' });
     expect(comparison).toHaveTextContent('COUNTEREXAMPLE_CONFIRMED');
     expect(comparison).not.toHaveTextContent('9917');
@@ -60,7 +64,7 @@ describe('Reviewer lifecycle regressions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Editable Learner Transcript' }), { target: { value: '23' } });
     fireEvent.click(screen.getByRole('button', { name: 'Propose Transcript Interpretation' }));
     await waitFor(() => expect(api.submitTextTurn).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel / Stop Audio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel turn' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Python Solution Editor' }), { target: { value: 'new repair invalidates pending cancel' } });
     await act(async () => finish({ turn_id: 'late-cancelled', revision, capture_attempt_id: 1, proposed_claim: { claim_type: 'OUTPUT_PREDICTION_AND_REASON', challenge_id: 'challenge-1', predicted_output: 23, extraction_method: 'DETERMINISTIC' } }));
     expect(vi.mocked(api.cancelSessionWork).mock.calls.every(([, request]) => request.scope === 'INTERRUPT')).toBe(true);
@@ -81,6 +85,7 @@ describe('Reviewer lifecycle regressions', () => {
   });
   it('restores a standalone verification report without fabricating execution evidence', async () => {
     await restore({ challenges: [], evidence_artifacts: [], trace_report: null, coaching: null, verification_report: { ...artifact.verification_report, status: 'VERIFICATION_INCOMPLETE', terminal_reason: 'verification_budget_exhausted' } });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Evidence' }));
     expect(screen.getByTestId('verification-status-badge')).toHaveTextContent('VERIFICATION_INCOMPLETE');
     expect(screen.getByText(/verification_budget_exhausted/)).toBeInTheDocument();
     expect(screen.queryByText('Your Code Output:')).not.toBeInTheDocument();
@@ -101,7 +106,7 @@ describe('Reviewer lifecycle regressions', () => {
     vi.spyOn(AudioRecorder.prototype, 'isRecording', 'get').mockImplementation(() => recording);
     vi.spyOn(AudioRecorder.prototype, 'capturedSamplesCount', 'get').mockReturnValue(28);
     vi.spyOn(AudioRecorder.prototype, 'startMicrophoneCapture').mockImplementation(async () => { recording = true; return { turnGeneration: 1, captureAttemptId: 1 }; });
-    const drain = vi.spyOn(AudioRecorder.prototype, 'drainMicrophoneCapture').mockReturnValue({ sessionId: 'session-1', turnGeneration: 1, captureAttemptId: 1, wavBytes, sampleRateHz: 16000, durationSec: 1, rmsNormalized: 0.2, peakNormalized: 0.4, lowEnergyWarning: false, clippedSamples: 0 });
+    const drain = vi.spyOn(AudioRecorder.prototype, 'drainMicrophoneCapture').mockReturnValue({ sessionId: 'session-1', turnGeneration: 1, captureAttemptId: 1, wavBytes, sampleRateHz: 16000, durationSec: 1, rmsNormalized: 0.2, peakNormalized: 0.4, lowEnergyWarning: false, clippedSamples: 0, speechLikeActivityDetected: true });
     const dispose = vi.spyOn(AudioRecorder.prototype, 'dispose').mockResolvedValue();
     const nextRevision = { ...revision, turn_generation: 2 };
     const upload = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ code: 'SPEECH_BUSY', message: 'Speech service is busy.', retryable: true }), { status: 503 }));
@@ -128,7 +133,7 @@ describe('Reviewer lifecycle regressions', () => {
     expect((second.body as FormData).get('revision')).toBe(JSON.stringify(nextRevision));
     expect((second.body as FormData).get('audio')).toEqual((first.body as FormData).get('audio'));
     expect(drain).toHaveBeenCalledTimes(1);
-    expect(dispose).not.toHaveBeenCalled();
+    expect(dispose).toHaveBeenCalledTimes(mode === 'direct' ? 1 : 0);
     expect(api.restoreSession).toHaveBeenCalledTimes(2);
   });
   it('releases voice upload ownership when unmuting replaces an aborted upload with TTS', async () => {
@@ -136,7 +141,7 @@ describe('Reviewer lifecycle regressions', () => {
     vi.spyOn(AudioRecorder.prototype, 'isRecording', 'get').mockImplementation(() => recording);
     vi.spyOn(AudioRecorder.prototype, 'capturedSamplesCount', 'get').mockReturnValue(28);
     vi.spyOn(AudioRecorder.prototype, 'startMicrophoneCapture').mockImplementation(async () => { recording = true; return { turnGeneration: 1, captureAttemptId: 1 }; });
-    vi.spyOn(AudioRecorder.prototype, 'drainMicrophoneCapture').mockReturnValue({ sessionId: 'session-1', turnGeneration: 1, captureAttemptId: 1, wavBytes: new Uint8Array(100).fill(12), sampleRateHz: 16000, durationSec: 1, rmsNormalized: 0.2, peakNormalized: 0.4, lowEnergyWarning: false, clippedSamples: 0 });
+    vi.spyOn(AudioRecorder.prototype, 'drainMicrophoneCapture').mockReturnValue({ sessionId: 'session-1', turnGeneration: 1, captureAttemptId: 1, wavBytes: new Uint8Array(100).fill(12), sampleRateHz: 16000, durationSec: 1, rmsNormalized: 0.2, peakNormalized: 0.4, lowEnergyWarning: false, clippedSamples: 0, speechLikeActivityDetected: true });
     vi.spyOn(api, 'requestVoiceOrientation').mockResolvedValue({ audio: new ArrayBuffer(4), playbackId: 'intro' });
     vi.spyOn(AudioPlayer.prototype, 'playWavBytes').mockResolvedValue({ started: true, fallbackAck: null });
     const upload = vi.fn().mockImplementationOnce((_url, init: RequestInit) => new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))));
@@ -149,7 +154,7 @@ describe('Reviewer lifecycle regressions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mute voice' }));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Unmute voice' })));
     expect((upload.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Done speaking' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send retained recording' }));
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
   });
   it('uses revision generation for real WebSocket proposals with no duplicate generation', async () => {
@@ -163,7 +168,7 @@ describe('Reviewer lifecycle regressions', () => {
     let isRecording = false;
     vi.spyOn(AudioRecorder.prototype, 'isRecording', 'get').mockImplementation(() => isRecording);
     vi.spyOn(AudioRecorder.prototype, 'startMicrophoneCapture').mockImplementation(async () => { isRecording = true; return { turnGeneration: 1, captureAttemptId: 1 }; });
-    vi.spyOn(AudioRecorder.prototype, 'stopMicrophoneCapture').mockImplementation(async () => { isRecording = false; return {} as Awaited<ReturnType<AudioRecorder['stopMicrophoneCapture']>>; });
+    vi.spyOn(AudioRecorder.prototype, 'stopMicrophoneCapture').mockImplementation(async () => { isRecording = false; return { speechLikeActivityDetected: true, lowEnergyWarning: false } as Awaited<ReturnType<AudioRecorder['stopMicrophoneCapture']>>; });
     const confirm = vi.spyOn(api, 'confirmTurnClaim').mockResolvedValue({ ...result() });
     await restore({ challenges: [{ ...challenge, reveal_state: 'HIDDEN' }], evidence_artifacts: [], trace_report: null, coaching: null, active_turn: null });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
@@ -174,7 +179,7 @@ describe('Reviewer lifecycle regressions', () => {
     await waitFor(() => expect(sockets).toHaveLength(1));
     await act(async () => sockets[0].dispatchEvent(new Event('open')));
     fireEvent.click(await screen.findByRole('button', { name: /^(Send voice|Done speaking)$/ }));
-    await act(async () => sockets[0].dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'proposal', turn_id: 'ws-turn', revision, capture_attempt_id: 1, proposed_claim: { claim_type: 'OUTPUT_PREDICTION_AND_REASON', challenge_id: 'challenge-1', predicted_output: 23, extraction_method: 'DETERMINISTIC' } }) })));
+    await act(async () => sockets[0].dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'proposal', turn_id: 'ws-turn', revision, normalized_transcript: 'It returns 23', capture_attempt_id: 1, proposed_claim: { claim_type: 'OUTPUT_PREDICTION_AND_REASON', challenge_id: 'challenge-1', predicted_output: 23, extraction_method: 'DETERMINISTIC' } }) })));
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     fireEvent.click(screen.getByText('Technical diagnostics'));
     expect(screen.getByText(/Turn #1 \/ Attempt #1/)).toBeInTheDocument();
@@ -190,7 +195,7 @@ describe('Reviewer lifecycle regressions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Editable Learner Transcript' }), { target: { value: '23' } });
     fireEvent.click(screen.getByRole('button', { name: 'Propose Transcript Interpretation' }));
     await waitFor(() => expect(api.submitTextTurn).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel / Stop Audio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel turn' }));
     expect(api.cancelSessionWork).not.toHaveBeenCalled();
     await act(async () => finish({ turn_id: 'pending-turn', revision, capture_attempt_id: 1, proposed_claim: { claim_type: 'OUTPUT_PREDICTION_AND_REASON', challenge_id: 'challenge-1', predicted_output: 23, extraction_method: 'DETERMINISTIC' } }));
     await waitFor(() => expect(api.cancelSessionWork).toHaveBeenCalledWith('session-1', expect.objectContaining({ scope: 'TURN', turn_id: 'pending-turn' })));
@@ -216,6 +221,7 @@ describe('Reviewer lifecycle regressions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close settings' }));
     expect(screen.getByRole('button', { name: /^(Send voice|Done speaking)$/ })).toBeEnabled();
     expect(api.restoreSession).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('tab', { name: 'Evidence' }));
     expect(screen.getByTestId('verification-status-badge')).toHaveTextContent('COUNTEREXAMPLE_CONFIRMED');
   });
   it('explicit cancel clears active capture and reconciles authoritative turn state', async () => {
@@ -230,7 +236,7 @@ describe('Reviewer lifecycle regressions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Talk to your mentor' }));
     await screen.findByRole('button', { name: /^(Send voice|Done speaking)$/ });
     dispose.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel / Stop Audio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel turn' }));
     await waitFor(() => expect(api.cancelSessionWork).toHaveBeenCalledWith('session-1', expect.objectContaining({ scope: 'TURN', turn_id: 'turn-1' })));
     await waitFor(() => expect(api.restoreSession).toHaveBeenCalledTimes(2));
     expect(dispose).toHaveBeenCalled();
@@ -342,8 +348,10 @@ describe('Revision-bound learning lifecycle', () => {
   it('restores only full-revision challenge/evidence and active trace pointer', async () => {
     const staleRevision = { ...revision, code_hash: 'stale', turn_generation: 9 };
     await restore({ challenges: [challenge, { ...challenge, revision: staleRevision, input_args: { secret: 'STALE_INPUT' } }], evidence_artifacts: [artifact, { ...artifact, revision: staleRevision, reference_output: 55555 }] });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Evidence' }));
     expect(screen.getByTestId('challenge-input-json')).not.toHaveTextContent('STALE_INPUT');
     expect(screen.getByText('Reference Oracle:').parentElement).not.toHaveTextContent('55555');
+    fireEvent.click(screen.getByRole('tab', { name: 'Transcript' }));
     expect(screen.getByRole('button', { name: /Inspect trace event 11/i })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: /Inspect trace event 11/i }));
     expect(screen.getByTestId('trace-step-details')).toHaveTextContent('Event #11');
@@ -364,7 +372,7 @@ describe('Revision-bound learning lifecycle', () => {
     const confirm = vi.spyOn(api, 'confirmTurnClaim').mockResolvedValue({ ...result({ artifact: null, challenge: null, trace_report: null, learning_state: 'EXPLAINING' }) });
     await restore({ challenges: [], evidence_artifacts: [], trace_report: null, coaching: null, active_turn: { state: 'AWAITING_CLAIM_CONFIRMATION' as const, turn_id: 'turn-explanation', proposed_claim: claim, capture_attempt_id: 7, turn_generation: 1, transcript: 'The window only grows' } });
     expect(screen.getByRole('textbox', { name: 'Editable Learner Transcript' })).toHaveValue('The window only grows');
-    expect(screen.queryByRole('button', { name: 'Confirm Explanation (No Execution)' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Explanation (No Execution)' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Submit prediction & run' })).not.toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
     expect(screen.queryByRole('region', { name: 'Execution & Prediction Comparison' })).not.toBeInTheDocument();
@@ -408,6 +416,7 @@ describe('Revision-bound learning lifecycle', () => {
   it('shows verifier process but hides failing outputs and oracle behind hidden diagnostic', async () => {
     const diagnostic = { ...challenge, challenge_id: 'hidden-failure', case_hash: 'failure-case', reveal_state: 'HIDDEN' as const };
     await restore({ challenges: [challenge, diagnostic] });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Evidence' }));
     const comparison = screen.getByRole('region', { name: 'Execution & Prediction Comparison' });
     expect(within(comparison).getByText(/Curated cases: 2 \/ 10/)).toBeInTheDocument();
     expect(within(comparison).getByText(/Generated cases: 3 \/ 20/)).toBeInTheDocument();

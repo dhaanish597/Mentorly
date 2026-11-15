@@ -36,7 +36,7 @@ export function reconcileVoiceRetry(current: WorkbenchSessionState, snapshot: un
     activeTrace: advanced ? null : current.activeTrace, activeView: 'EXPLAIN_APPROACH_TURN' };
 }
 export function coachingEntry(coaching: CoachingResponse, level = 1): WorkbenchSessionState['coachingHistory'][number] {
-  return { hintLevel: coaching.hint_level ?? level, displayText: coaching.display_text ?? coaching.text ?? 'Coaching is unavailable. Inspect the observed execution outcome.', pointedLine: coaching.pointed_line ?? null, pointedEventId: coaching.pointed_event_id ?? null, sourceMode: coaching.source_mode ?? 'DETERMINISTIC', stale: false };
+  return { hintLevel: coaching.hint_level ?? level, displayText: coaching.display_text ?? coaching.text ?? 'Coaching is unavailable. Inspect the observed execution outcome.', pointedLine: coaching.pointed_line ?? null, pointedEventId: coaching.pointed_event_id ?? null, sourceMode: coaching.source_mode ?? 'DETERMINISTIC', ...(coaching.model_status ? {modelStatus:coaching.model_status} : {}), stale: false };
 }
 function currentHintLevel(coaching: CoachingResponse | null | undefined): WorkbenchSessionState['currentHintLevel'] {
   return coaching?.hint_level === 2 || coaching?.hint_level === 3 ? coaching.hint_level : 1;

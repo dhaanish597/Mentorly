@@ -132,7 +132,9 @@ def create(db_path: str, workspace: str, source_kind: str, files: dict[str,str],
         ranks=_rank(paths,structures)
         hashes = {p:digest(files[p].encode()) for p in paths}
         snapshot_hash=digest(json.dumps(hashes,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode())
-        coverage = dict(coverage, parsed=sum(x['status']=='parsed' for x in structures.values()), lexical=sum(x['status']=='lexical' for x in structures.values()), parse_errors=sum(x['status'] not in ('parsed','lexical') for x in structures.values()))
+        from backend.app.repo_learning.analyzer import analyze_repository
+        arch = analyze_repository(files, structures)
+        coverage = dict(coverage, architecture=arch, parsed=sum(x['status']=='parsed' for x in structures.values()), lexical=sum(x['status']=='lexical' for x in structures.values()), parse_errors=sum(x['status'] not in ('parsed','lexical') for x in structures.values()))
         with closing(open_connection(db_path)) as db:
             db.execute('BEGIN IMMEDIATE')
             _check_quota(db,workspace,_snapshot_charge(files, structures),snapshot_id)

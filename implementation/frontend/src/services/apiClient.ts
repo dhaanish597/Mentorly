@@ -32,6 +32,8 @@ import type {
   ClaimInterpretation, EvidenceArtifact, HiddenEvidenceArtifactView, RevisionRef, TraceExecutionReport, VerifyRequest,
 } from '../types/api';
 
+import { readApiError } from './apiErrors';
+
 const API_BASE = '/api/v1';
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -41,7 +43,7 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
     signal,
   });
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status} fetching ${path}`);
+    throw new Error(await readApiError(response));
   }
   return (await response.json()) as T;
 }
@@ -64,8 +66,7 @@ async function sendJson<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error(detail?.message ?? detail?.error?.message ?? detail?.detail ?? `HTTP ${response.status} on ${method} ${path}`);
+    throw new Error(await readApiError(response));
   }
   return (await response.json()) as T;
 }
@@ -216,7 +217,7 @@ export interface SessionSnapshot {
 }
 export interface TurnResponse { turn_id: string; revision: RevisionRef; proposed_claim: ClaimInterpretation; capture_attempt_id: number; turn_generation?: number; transcript?: string; normalized_transcript?: string }
 export interface CoachingResponse {
-  display_text?: string; text?: string; hint_level?: number; pointed_line?: number | null; pointed_event_id?: number | null; source_mode?: string;
+  display_text?: string; text?: string; hint_level?: number; pointed_line?: number | null; pointed_event_id?: number | null; source_mode?: string; model_status?: string;
 }
 export interface ResultResponse {
   session_state: import('../types/api').SessionState;
@@ -262,10 +263,7 @@ export async function requestVoiceOrientation(
     body: JSON.stringify({ revision }),
   });
   if (!response.ok) {
-    const detail: unknown = await response.json().catch(() => null);
-    const message = detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string'
-      ? detail.message : 'Voice is unavailable. Continue with text.';
-    throw new Error(message);
+    throw new Error(await readApiError(response, 'Voice is unavailable. Continue with text.'));
   }
   if (!response.headers.get('Content-Type')?.startsWith('audio/wav')) {
     throw new Error('The voice service returned an unsupported audio format. Continue with text.');

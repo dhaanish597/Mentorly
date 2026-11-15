@@ -49,11 +49,13 @@ class GamificationApiTests(unittest.TestCase):
 
     def test_get_learning_paths_endpoint(self) -> None:
         res = self.client.get("/api/v1/gamification/learning-paths")
-        self.assertEqual(res.status_code, 200)
-        paths = res.json()
-        self.assertEqual(len(paths), 5)
-        slugs = [p["slug"] for p in paths]
-        self.assertEqual(slugs, ["dsa", "aptitude", "system_design", "cs_fundamentals", "verbal"])
+        self.assertEqual(res.status_code, 410)
+        self.assertEqual(res.headers["Cache-Control"], "no-store")
+        data = res.json()
+        self.assertIn("retired", data["detail"])
+        self.assertIn("/api/v1/learning", data["detail"])
+        for field in ("paths", "challenges", "unlocked_level", "xp_reward"):
+            self.assertNotIn(field, data)
 
     def test_legacy_dashboard_is_retired_without_personalized_data(self) -> None:
         for query in ("", "?user_id=test-student-1"):

@@ -42,7 +42,7 @@ export const TEACHERS: Record<TeacherId, TeacherConfig> = {
     personality: 'Energetic, encouraging, and intuitive. Veda breaks down complex numerical problems and logical puzzles into step-by-step mental models.',
     specialties: ['Permutations & Combinations', 'Probability', 'Time & Work', 'Speed & Distance', 'Logical Deductions', 'Number Theory'],
     greeting: "Welcome! Math and reasoning aren't about memorizing formulas—they're about spotting underlying ratios and structures. Let's reason through this together.",
-    defaultPath: '/paths/Aptitude%20and%20Logic',
+    defaultPath: '/learn/apt-percent',
   },
   nexus: {
     id: 'nexus',
@@ -70,7 +70,7 @@ export const TEACHERS: Record<TeacherId, TeacherConfig> = {
     personality: 'Knowledgeable, lucid, and grounded in first principles. Corel connects high-level abstractions down to kernel scheduling, memory pages, and network frames.',
     specialties: ['Processes & Threads', 'CPU Scheduling', 'Virtual Memory & Paging', 'ACID & Transactions', 'TCP/IP 3-Way Handshake', 'OOP & Design Patterns'],
     greeting: "Let's peel back the layers. How does the kernel actually manage this resource when two competing threads access it concurrently?",
-    defaultPath: '/paths/CS%20Fundamentals',
+    defaultPath: '/learn/cs-processes',
   },
 };
 

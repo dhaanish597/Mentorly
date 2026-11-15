@@ -1,4 +1,5 @@
 import type { ExerciseMetadata } from '../types/api';
+import { isProductLanguageMode, type ProductLanguageMode } from '../voice/languages';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export interface PracticeDraft {
@@ -11,7 +12,7 @@ export interface ProductState {
   readonly theme: ThemePreference;
   readonly inputChoice: 'text' | 'voice' | null;
   readonly alwaysVoiceOn?: boolean;
-  readonly language: 'en-IN' | 'ta-IN,en-IN';
+  readonly language: ProductLanguageMode;
   readonly statementWidth: number;
   readonly coachWidth: number;
   readonly resultsHeight: number;
@@ -59,7 +60,7 @@ export function loadProductState(storage: Pick<Storage, 'getItem'> = localStorag
       theme: raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system',
       inputChoice: raw.inputChoice === 'text' || raw.inputChoice === 'voice' ? raw.inputChoice : null,
       alwaysVoiceOn: raw.alwaysVoiceOn === true,
-      language: raw.language === 'ta-IN,en-IN' ? raw.language : 'en-IN',
+      language: isProductLanguageMode(raw.language) ? raw.language : 'en-IN',
       statementWidth: bounded(raw.statementWidth, 240, 480, 300), coachWidth: bounded(raw.coachWidth, 300, 520, 360),
       resultsHeight: bounded(raw.resultsHeight, 120, 400, 190), coachCollapsed: raw.coachCollapsed === true,
       bookmarks: Array.isArray(raw.bookmarks) ? raw.bookmarks.filter((id): id is string => typeof id === 'string') : [], drafts,

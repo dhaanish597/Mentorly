@@ -98,7 +98,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
         try:
             if request.url.path.rstrip('/') in {
                 '/api/v1/gamification/dashboard', '/api/v1/gamification/leaderboard',
-                '/api/v1/gamification/quiz/submit',
+                '/api/v1/gamification/quiz/submit', '/api/v1/gamification/learning-paths',
             }:
                 return JSONResponse(status_code=410, content={
                     'detail': 'Legacy personalization retired: use authenticated /api/v1/learning progress and assessments.',
@@ -149,6 +149,8 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     register_exception_handlers(application)
     from backend.app.studio.routes import router as studio_router
     application.include_router(studio_router, prefix="/api/v1")
+    from backend.app.studio.recovery import router as recovery_router
+    application.include_router(recovery_router, prefix="/api/v1")
     from backend.app.studio.speech import router as studio_speech_router
     application.include_router(studio_speech_router, prefix="/api/v1")
     from backend.app.studio.feedback import router as studio_feedback_router
@@ -157,12 +159,18 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     application.include_router(studio_turns_router, prefix="/api/v1")
     from backend.app.repo_learning.routes import router as repo_learning_router
     application.include_router(repo_learning_router, prefix="/api/v1")
+    from backend.app.repo_learning.mentor_routes import router as codebase_mentor_router
+    application.include_router(codebase_mentor_router, prefix="/api/v1")
     from backend.app.repo_learning.rederive_routes import router as redrive_router
     application.include_router(redrive_router)
     from backend.app.interviews.routes import router as interviews_router
     application.include_router(interviews_router, prefix='/api/v1')
     from backend.app.learning.routes import router as learning_router
     application.include_router(learning_router, prefix='/api/v1')
+    from backend.app.learning_voice.routes import router as module_voice_router
+    application.include_router(module_voice_router, prefix='/api/v1')
+    from backend.app.learning.service import record_interview_completion
+    application.state.interview_completion_hook = record_interview_completion
     application.include_router(meta_router, prefix="/api/v1")
     from backend.app.operations.readiness import router as operations_router
     application.include_router(operations_router, prefix="/api/v1")
