@@ -1,14 +1,17 @@
 """Interview-specific schemas; no caller-selected owner or execution verdict."""
+
 from typing import Literal
+
+from backend.app.assessments.schemas import SemanticReview
+from backend.app.models.enums import LanguageMode
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-InterviewType = Literal['dsa', 'cs', 'system_design', 'codebase_defense']
-Difficulty = Literal['beginner', 'intermediate', 'advanced']
-LanguageMode = Literal['en-IN', 'ta-IN,en-IN']
+InterviewType = Literal["dsa", "cs", "system_design", "codebase_defense"]
+Difficulty = Literal["beginner", "intermediate", "advanced"]
 
 
 class Strict(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra="forbid")
 
 
 class NewSession(Strict):
@@ -18,11 +21,11 @@ class NewSession(Strict):
     duration_minutes: int = Field(ge=5, le=60, strict=True)
     language_mode: LanguageMode
 
-    @field_validator('topics')
+    @field_validator("topics")
     @classmethod
     def valid_topics(cls, value: list[str]) -> list[str]:
         if any(not 1 <= len(t) <= 80 for t in value) or len(set(value)) != len(value):
-            raise ValueError('Topics must be unique bounded catalog identifiers')
+            raise ValueError("Topics must be unique bounded catalog identifiers")
         return value
 
 
@@ -33,12 +36,13 @@ class Finish(Strict):
 class Answer(Finish):
     answer: str = Field(min_length=1, max_length=12000)
     code: str | None = Field(default=None, max_length=24000)
+    allow_external: bool = False
 
-    @field_validator('answer')
+    @field_validator("answer")
     @classmethod
     def nonblank(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError('Answer cannot be blank')
+            raise ValueError("Answer cannot be blank")
         return value  # Preserve exact offsets for report excerpts.
 
 
@@ -56,7 +60,7 @@ class Message(Strict):
 
 class Question(Message):
     id: str
-    kind: Literal['primary', 'followup']
+    kind: Literal["primary", "followup"]
     parent_id: str | None
 
 
@@ -72,7 +76,7 @@ class Indicator(Strict):
     value: int = Field(ge=0, le=1)
     maximum: Literal[1]
     status: str
-    semantic_validity: Literal['unassessed']
+    semantic_validity: Literal["unassessed"]
     excerpts: list[Excerpt]
 
 
@@ -82,6 +86,7 @@ class AnswerReport(Strict):
     answer: str
     code: str | None
     indicators: list[Indicator]
+    semantic_review: SemanticReview | None = None
 
 
 class Assessment(Strict):
@@ -97,9 +102,16 @@ class Recommendation(Strict):
     missing_indicators: list[str]
 
 
+class PracticeTopic(Strict):
+    type: InterviewType
+    topic: str
+    reason: str
+    missing_indicators: list[str]
+
+
 class Report(Strict):
     session_id: str
-    completion_reason: Literal['finished', 'timeout', 'questions_exhausted']
+    completion_reason: Literal["finished", "timeout", "questions_exhausted"]
     completed_at: str
     answered_count: int
     semantic_validity: Assessment
@@ -107,6 +119,7 @@ class Report(Strict):
     psychology: Assessment
     answers: list[AnswerReport]
     recommendations: list[Recommendation]
+    practice_topics: list[PracticeTopic] = Field(default_factory=list)
     limitations: list[str]
 
 
@@ -118,7 +131,7 @@ class SessionView(Strict):
     duration_minutes: int
     language_mode: LanguageMode
     epoch: int
-    state: Literal['active', 'completed']
+    state: Literal["active", "completed"]
     started_at: str
     deadline_at: str
     introduction: Message
@@ -151,6 +164,7 @@ class Exercise(Strict):
     difficulty: str
     spec_version: str
     topics: list[str]
+    constraints_summary: list[str]
 
 
 class Catalog(Strict):

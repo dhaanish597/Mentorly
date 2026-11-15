@@ -17,7 +17,7 @@ def test_versioned_catalog_and_all_verified_question_answers():
     from backend.app.learning.catalog import evaluate_answer, public_catalog
     value = curriculum()
     validate(value)
-    assert public_catalog(value)['version'] == '1.0.0'
+    assert public_catalog(value)['version'] == '1.1.0'
     for track in value['tracks']:
         for lesson in track['lessons']:
             question = lesson['question']
@@ -61,6 +61,21 @@ def test_rejects_dangling_cycles_duplicate_ids_invalid_targets(damage, match):
         value['version'] = 'latest'
     with pytest.raises(ValueError, match=match):
         validate(value)
+
+
+def test_expanded_curriculum_covers_independent_missing_topic_lessons():
+    value = curriculum()
+    ids = {lesson['id'] for track in value['tracks'] for lesson in track['lessons']}
+    required = {'dsa-strings', 'dsa-queue', 'dsa-recursion', 'dsa-backtracking', 'dsa-bst',
+                'dsa-trie', 'dsa-topological', 'dsa-dijkstra', 'dsa-mst', 'dsa-union-find',
+                'dsa-segment-tree', 'dsa-bits', 'dsa-number-theory', 'dsa-amortized',
+                'cs-synchronization', 'cs-page-replacement', 'cs-sql', 'cs-isolation',
+                'cs-recovery', 'cs-normal-forms', 'cs-osi', 'cs-dns', 'cs-tls', 'cs-congestion',
+                'cs-polymorphism', 'cs-patterns', 'cs-cpu', 'cs-consistency', 'cs-requirements',
+                'cs-sdlc', 'apt-profit', 'apt-interest', 'apt-mixtures', 'apt-divisibility',
+                'apt-algebra', 'apt-geometry', 'apt-logical-puzzle', 'apt-assumptions',
+                'apt-vocabulary', 'apt-di-table', 'apt-di-growth', 'apt-di-pie'}
+    assert required <= ids
 
 
 def test_missing_studio_scenario_and_executable_spec_are_rejected():

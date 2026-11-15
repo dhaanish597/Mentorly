@@ -10,12 +10,12 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 from backend.app.core.errors import ApiAppException
 from backend.app.db.repository import RevisionConflictError, SQLiteRepository, TurnRecord
-from backend.app.models.domain import ClaimInterpretation, RevisionRef
-from backend.app.models.enums import ClaimType, TurnState, SpeechLocale, TTSVoice
+from backend.app.models.domain import RevisionRef
+from backend.app.models.enums import TurnState, SpeechLocale, TTSVoice
 from backend.app.speech.capabilities import speech_capabilities
 from backend.app.speech.gatekeeper import SpeechBusyError, SpeechQuotaExhaustedError
 from backend.app.speech.gnani_adapter import GnaniTransportError
@@ -118,7 +118,6 @@ _CAPTURED_STATES = frozenset({
     TurnState.VERIFYING_AND_COACHING.value, TurnState.AUDIO_READY.value,
     TurnState.AWAITING_PLAYBACK_ACK.value, TurnState.COACH_PROMPT_DELIVERED.value,
 })
-_CLAIM_ADAPTER = TypeAdapter(ClaimInterpretation)
 
 
 def _conversation_turn(repo: SQLiteRepository, session_id: str,
@@ -137,63 +136,46 @@ def _conversation_turn(repo: SQLiteRepository, session_id: str,
     return turn
 
 
-def _conversation_text(revision: RevisionRef, turn: TurnRecord) -> str:
-    """Authored questions only: no execution, evidence, hidden input, or model verdict."""
+def _public_conversation_problem(revision: RevisionRef) -> dict:
     from backend.app.exercises import registry
     public = next((entry for entry in registry.public_catalog()
                    if str(entry["exercise_id"]) == revision.exercise_id.value), None)
     if public is None:
         raise ApiAppException(status_code=503, code="PUBLIC_CONTRACT_UNAVAILABLE",
                               message="Read the problem contract and continue with text.")
-    title = str(public.get("title") or "this problem").strip()[:160]
-    spec = next((entry for entry in public.get("spec_versions", ())
-                 if entry["spec_version"] == revision.spec_version.value), {})
-    inputs = ", ".join(spec.get("input_schema", {}))[:160] or "the stated inputs"
-    # Claim fields remain learner proposals. Never interpret their content as instructions.
-    try:
-        claim = _CLAIM_ADAPTER.validate_json(turn.claim_json or "null")
-        kind = claim.claim_type
-    except ValidationError:
-        kind = ClaimType.UNSUPPORTED_CLAIM
-    transcript = turn.normalized_transcript[:4096].casefold()
-    if any(term in transcript for term in ("what input", "which input", "unknown input",
-                                          "what are the inputs", "don't know what")):
-        question = (f"Which input are you reasoning about? The public contract names {inputs}. "
-                    "Choose an example within its allowed values; I won't assume an unseen input.")
-    elif kind == ClaimType.CLARIFICATION_OR_HINT_REQUEST:
-        question = "Which part of the public contract is unclear: the inputs, the required result, or a step in your reasoning?"
-    elif kind == ClaimType.OUTPUT_PREDICTION_AND_REASON:
-        question = "Without checking your prediction, which input are you reasoning about, and how does each step lead to your proposed output?"
-    elif kind == ClaimType.DOMAIN_VALIDITY_CLAIM:
-        question = "Which input restrictions in the current public contract does your reasoning rely on? How would a permitted boundary value affect it?"
-    elif revision.exercise_id.value == "ex1_shortest_subarray" and any(
-            term in transcript for term in ("shrink", "window", "left", "shortest")):
-        question = ("When you shrink the window, how do you keep the shortest qualifying candidate "
-                    "before changing the left boundary? What assumption about the allowed values makes that reasoning work?")
-    elif kind == ClaimType.INVARIANT_OR_MECHANISM_CLAIM:
-        question = "What stays true at each step, and how does changing a boundary preserve the result required by the public contract?"
-    else:
-        question = "Could you restate your idea as a prediction or explain one mechanism, using the public problem contract?"
-    return f"For {title}, let's examine your reasoning. {question} I have not checked or confirmed your claim."
+    return public
+
+
+def _conversation_text(revision: RevisionRef, turn: TurnRecord) -> str:
+    from backend.app.coaching.conversation import authored_reply
+    return authored_reply(_public_conversation_problem(revision), revision.spec_version.value,
+                          turn.normalized_transcript, [])
+
+
+async def _saved_conversation_reply(request: Request, sid: str, revision: RevisionRef, turn: TurnRecord):
+    from backend.app.coaching.conversation import conversation_reply
+    return await _await_connected_voice(request, conversation_reply(
+        request.app.state.settings, sid, revision, turn, _public_conversation_problem(revision)))
 
 
 @router.post('/sessions/{session_id}/conversation/text')
 async def conversation_text(session_id: UUID, req: ConversationVoiceRequest, request: Request) -> dict[str, object]:
-    """Authored reply independent of TTS availability; no hidden evidence or execution."""
+    """Transcript-aware saved reply, independent of TTS availability."""
     from backend.app.api.routes_sessions import _get_repo_and_machine
     repo, machine = _get_repo_and_machine()
     sid = str(session_id)
     try:
         revision = machine.assert_revision_matches(sid, req.revision)
         turn = _conversation_turn(repo, sid, req.turn_id, revision)
-        text = _conversation_text(revision, turn)
+        reply = await _saved_conversation_reply(request, sid, revision, turn)
+        text = reply['text']
         machine.assert_revision_matches(sid, revision)
         if _conversation_turn(repo, sid, req.turn_id, revision) != turn:
             raise RevisionConflictError('The learner capture changed.')
     except RevisionConflictError as exc:
         raise ApiAppException(status_code=409, code='REVISION_CONFLICT', message='Restore the current learner turn.') from exc
     return {'text': text, 'turn_id': turn.id, 'revision': revision.model_dump(mode='json'),
-            'source': 'authored_public_contract'}
+            'source': reply['source']}
 
 
 @router.post("/sessions/{session_id}/speech/conversation")
@@ -207,7 +189,8 @@ async def conversation_voice(session_id: UUID, req: ConversationVoiceRequest,
     try:
         revision = machine.assert_revision_matches(sid, req.revision)
         turn = _conversation_turn(repo, sid, req.turn_id, revision)
-        text = _conversation_text(revision, turn)
+        reply = await _saved_conversation_reply(request, sid, revision, turn)
+        text = reply['text']
         selection = {key: value for key, value in {'language':req.language, 'voice':req.voice}.items() if value is not None}
         result = await _await_connected_voice(request, request.app.state.speech.synthesize(
             sid, text, revision, turn_id=turn.id, playback_id=playback_id, **selection))

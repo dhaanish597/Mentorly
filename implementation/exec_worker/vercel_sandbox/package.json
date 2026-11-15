@@ -1,0 +1,12 @@
+{
+  "name": "viva-vercel-sandbox-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test smoke.test.mjs network-control.test.mjs",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@vercel/sandbox": "4.0.0"
+  }
+}

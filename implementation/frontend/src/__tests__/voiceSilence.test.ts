@@ -6,6 +6,7 @@ import {
   type CapturedAudio,
   type MicrophoneCaptureOptions,
 } from '../services/audioRecorder';
+import { voiceLike } from './fixtures/syntheticActivity';
 import { TARGET_SAMPLE_RATE_HZ } from '../services/audioWorkletProcessor';
 
 function createMicrophoneHarness(sampleRate = 48000) {
@@ -78,7 +79,7 @@ describe('microphone speech activity and silence deadlines', () => {
     expect(onSilenceTimeout).not.toHaveBeenCalled();
   });
 
-  it('reports each real RMS speech frame and fires once after exactly ten seconds quiet', async () => {
+  it('reports sustained speech-like activity and fires once after exactly ten seconds quiet', async () => {
     const recorder = createRecorder();
     const harness = createMicrophoneHarness();
     const onSpeechActivity = vi.fn();
@@ -88,7 +89,7 @@ describe('microphone speech activity and silence deadlines', () => {
       ...harness.options, onSpeechActivity, onSilenceTimeout, onFrameTelemetry,
     });
 
-    harness.emit(speech());
+    harness.emit(voiceLike());
     harness.emit(quiet());
     vi.advanceTimersByTime(9_999);
     expect(onSpeechActivity).toHaveBeenCalledTimes(1);
@@ -116,18 +117,18 @@ describe('microphone speech activity and silence deadlines', () => {
     expect(onSilenceTimeout).not.toHaveBeenCalled();
   });
 
-  it('resets the deadline on every speech frame, not just the first speech onset', async () => {
+  it('resets the deadline after each sustained activity interval', async () => {
     const recorder = createRecorder();
     const harness = createMicrophoneHarness();
     const onSpeechActivity = vi.fn();
     const onSilenceTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, onSpeechActivity, onSilenceTimeout });
 
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(9_000);
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(9_000);
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(9_999);
     expect(onSilenceTimeout).not.toHaveBeenCalled();
     expect(onSpeechActivity).toHaveBeenCalledTimes(3);
@@ -140,13 +141,13 @@ describe('microphone speech activity and silence deadlines', () => {
     const harness = createMicrophoneHarness();
     const onSilenceTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, silenceMs: 100, onSilenceTimeout });
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(100);
     expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
     harness.emit(quiet());
     vi.advanceTimersByTime(500);
     expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(99);
     expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
@@ -166,7 +167,7 @@ describe('microphone speech activity and silence deadlines', () => {
     const onSilenceTimeout = vi.fn();
     const onDeviceLost = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, onSilenceTimeout, onDeviceLost });
-    harness.emit(speech());
+    harness.emit(voiceLike());
     if (action === 'stop') await recorder.stopMicrophoneCapture();
     else if (action === 'dispose') await recorder.dispose();
     else harness.track.onended?.();
@@ -182,14 +183,14 @@ describe('microphone speech activity and silence deadlines', () => {
     const first = createMicrophoneHarness();
     const oldTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...first.options, onSilenceTimeout: oldTimeout });
-    first.emit(speech());
+    first.emit(voiceLike());
     const second = createMicrophoneHarness();
     const newTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...second.options, onSilenceTimeout: newTimeout });
     vi.advanceTimersByTime(10_000);
     expect(oldTimeout).not.toHaveBeenCalled();
     expect(newTimeout).not.toHaveBeenCalled();
-    second.emit(speech());
+    second.emit(voiceLike());
     vi.advanceTimersByTime(10_000);
     expect(newTimeout).toHaveBeenCalledTimes(1);
   });
@@ -271,14 +272,14 @@ describe('microphone speech activity and silence deadlines', () => {
     const harness = createMicrophoneHarness();
     const onSilenceTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, onSilenceTimeout, silenceMs: 100 });
-    harness.emit(speech());
+    harness.emit(voiceLike());
     recorder.drainMicrophoneCapture();
     vi.advanceTimersByTime(100);
     expect(onSilenceTimeout).not.toHaveBeenCalled();
     harness.emit(quiet());
     vi.advanceTimersByTime(100);
     expect(onSilenceTimeout).not.toHaveBeenCalled();
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(100);
     expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
   });
@@ -291,14 +292,14 @@ describe('microphone speech activity and silence deadlines', () => {
       ...harness.options, silenceMs: 100,
       onSilenceTimeout: () => recordings.push(recorder.drainMicrophoneCapture()),
     });
-    harness.emit(speech());
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(100);
     expect(recordings).toHaveLength(1);
     expect(recorder.isRecording).toBe(true);
-    harness.emit(new Float32Array(128).fill(0.25));
+    harness.emit(voiceLike());
     vi.advanceTimersByTime(100);
     expect(recordings).toHaveLength(2);
-    expect(pcmOf(recordings[1])).toHaveLength(43);
+    expect(pcmOf(recordings[1])).toHaveLength(14400);
     expect(harness.track.stop).not.toHaveBeenCalled();
   });
 
@@ -307,15 +308,15 @@ describe('microphone speech activity and silence deadlines', () => {
     const harness = createMicrophoneHarness(16000);
     const onSilenceTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, onSilenceTimeout });
-    harness.emit(speech());
+    harness.emit(voiceLike());
     recorder.drainMicrophoneCapture();
-    harness.emit(new Float32Array(128).fill(0.25));
+    harness.emit(voiceLike(16000));
     const before = recorder.capturedSamplesCount;
     recorder.setTurnGeneration(4, true);
     expect(recorder.capturedSamplesCount).toBe(before);
     vi.advanceTimersByTime(10_000);
     expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
-    expect(pcmOf(recorder.drainMicrophoneCapture())).toEqual(new Array(128).fill(8192));
+    expect(pcmOf(recorder.drainMicrophoneCapture())).toHaveLength(14400);
     expect(recorder.isRecording).toBe(true);
   });
 
@@ -350,7 +351,7 @@ describe('microphone speech activity and silence deadlines', () => {
     expect(bounded.wavBytes.byteLength).toBeLessThanOrEqual(MAX_WAV_BYTES);
   });
 
-  it('detects positive and negative speech at the exact RMS threshold', async () => {
+  it('rejects positive and negative constant signals even above the old RMS threshold', async () => {
     const recorder = createRecorder();
     const harness = createMicrophoneHarness(16000);
     const onSpeechActivity = vi.fn();
@@ -358,7 +359,7 @@ describe('microphone speech activity and silence deadlines', () => {
     harness.emit(new Float32Array(128).fill(0.019));
     harness.emit(new Float32Array(128).fill(0.02));
     harness.emit(new Float32Array(128).fill(-0.02));
-    expect(onSpeechActivity).toHaveBeenCalledTimes(2);
+    expect(onSpeechActivity).not.toHaveBeenCalled();
   });
 
   it('handles devicechange only when all microphone tracks have ended', async () => {
@@ -368,7 +369,7 @@ describe('microphone speech activity and silence deadlines', () => {
     const onSilenceTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, onDeviceLost, onSilenceTimeout });
     const listener = vi.mocked(harness.options.mediaDevices!.addEventListener).mock.calls[0][1] as () => void;
-    harness.emit(speech());
+    harness.emit(voiceLike());
     listener();
     expect(onDeviceLost).not.toHaveBeenCalled();
     expect(recorder.isRecording).toBe(true);
@@ -459,7 +460,7 @@ describe('microphone speech activity and silence deadlines', () => {
     const harness = createMicrophoneHarness();
     const onSilenceTimeout = vi.fn();
     await recorder.startMicrophoneCapture({ ...harness.options, onSilenceTimeout });
-    harness.emit(speech());
+    harness.emit(voiceLike());
     const fail = () => { throw new Error('browser cleanup failed'); };
     vi.mocked(harness.options.mediaDevices!.removeEventListener).mockImplementation(fail);
     harness.node.disconnect.mockImplementation(fail);
@@ -468,7 +469,7 @@ describe('microphone speech activity and silence deadlines', () => {
     harness.context.close.mockRejectedValue(new Error('close failed'));
     const result = await recorder.stopMicrophoneCapture();
     vi.advanceTimersByTime(10_000);
-    expect(result.wavBytes.byteLength).toBe(128);
+    expect(result.wavBytes.byteLength).toBe(28844);
     expect(onSilenceTimeout).not.toHaveBeenCalled();
     expect(recorder.state).toBe('IDLE');
     expect(harness.context.close).toHaveBeenCalledTimes(1);
@@ -486,5 +487,40 @@ describe('microphone speech activity and silence deadlines', () => {
     expect(onBackpressureLimitReached).not.toHaveBeenCalled();
     expect(recorder.isRecording).toBe(true);
     expect(harness.context.close).not.toHaveBeenCalled();
+  });
+});
+
+describe('browser processing and noise-only capture boundaries', () => {
+  it('requests only supported processing constraints and reports actual track settings', async () => {
+    const recorder = new AudioRecorder('processing'); const harness = createMicrophoneHarness();
+    harness.options.mediaDevices!.getSupportedConstraints = () => ({ echoCancellation: true, noiseSuppression: false, autoGainControl: false });
+    Object.assign(harness.track, { getSettings: () => ({ echoCancellation: true, noiseSuppression: false }) });
+    await recorder.startMicrophoneCapture(harness.options);
+    const request = vi.mocked(harness.options.mediaDevices!.getUserMedia).mock.calls[0][0];
+    if (!request) throw new Error('The microphone must receive explicit constraints.');
+    expect(request.audio).toMatchObject({ channelCount: 1, echoCancellation: true });
+    expect(request.audio).not.toHaveProperty('noiseSuppression'); expect(request.audio).not.toHaveProperty('autoGainControl');
+    expect(recorder.processingStatus).toEqual({ echoCancellation: 'enabled', noiseSuppression: 'disabled', autoGainControl: 'unreported' });
+    await recorder.dispose();
+  });
+  it('keeps unreported processing honest when browser discovery and track settings are unavailable', async () => {
+    const recorder = new AudioRecorder('processing'); const harness = createMicrophoneHarness();
+    await recorder.startMicrophoneCapture(harness.options);
+    expect(recorder.processingStatus).toEqual({ echoCancellation: 'unreported', noiseSuppression: 'unreported', autoGainControl: 'unreported' });
+    await recorder.dispose();
+  });
+  it('does not arm auto-submit for three seconds of fan-like noise and flags the WAV for rejection', async () => {
+    vi.useFakeTimers();
+    const recorder = new AudioRecorder('fan'); const harness = createMicrophoneHarness(); const onSilenceTimeout = vi.fn();
+    try {
+      await recorder.startMicrophoneCapture({ ...harness.options, onSilenceTimeout });
+      const fan = Float32Array.from({ length: 48000 * 3 }, (_, i) => .15 * Math.sin(2 * Math.PI * 95 * i / 48000));
+      for (let i = 0; i < fan.length; i += 128) harness.emit(fan.subarray(i, i + 128));
+      vi.advanceTimersByTime(20_000);
+      expect(onSilenceTimeout).not.toHaveBeenCalled();
+      const capture = await recorder.stopMicrophoneCapture();
+      expect(capture.lowEnergyWarning).toBe(false); // loud enough for the previous RMS-only rule
+      expect(capture.speechLikeActivityDetected).toBe(false);
+    } finally { await recorder.dispose(); vi.useRealTimers(); }
   });
 });

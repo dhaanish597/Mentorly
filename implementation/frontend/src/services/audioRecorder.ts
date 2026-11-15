@@ -12,6 +12,8 @@
  */
 
 import type { InteractionMode } from '../types/api';
+import { SpeechActivityDetector } from './speechActivity';
+import { loadInputDeviceId } from '../voice/inputDevices';
 import {
   StatefulResampler,
   TARGET_SAMPLE_RATE_HZ,
@@ -46,20 +48,25 @@ export interface AssembledWavRecording {
   readonly peakNormalized: number;
   readonly lowEnergyWarning: boolean;
   readonly clippedSamples: number;
+  /** Local heuristic only; recognition still determines whether usable text exists. */
+  readonly speechLikeActivityDetected: boolean;
 }
 
 /** The same WAV payload returned by stopping capture, also usable for continuous-turn drains. */
 export type CapturedAudio = AssembledWavRecording;
 
+type CaptureMediaDevices = Pick<MediaDevices, 'getUserMedia' | 'addEventListener' | 'removeEventListener'> & Partial<Pick<MediaDevices, 'getSupportedConstraints'>>;
+export type CaptureProcessingStatus = { echoCancellation: 'enabled' | 'disabled' | 'unreported'; noiseSuppression: 'enabled' | 'disabled' | 'unreported'; autoGainControl: 'enabled' | 'disabled' | 'unreported' };
+
 export interface MicrophoneCaptureOptions {
-  readonly mediaDevices?: Pick<MediaDevices, 'getUserMedia' | 'addEventListener' | 'removeEventListener'>;
+  readonly mediaDevices?: CaptureMediaDevices;
   readonly audioContextFactory?: () => AudioContext;
   readonly workletNodeFactory?: (context: AudioContext, processorName: string) => AudioWorkletNode;
   readonly constraints?: MediaTrackConstraints;
   readonly onFrameTelemetry?: (frame: WorkletTelemetryFrame) => void;
   readonly onDeviceLost?: (reason: string) => void;
   readonly onBackpressureLimitReached?: () => void;
-  /** Called on every captured frame whose RMS reaches SPEECH_RMS_THRESHOLD. */
+  /** Called after sustained, modulated speech-like activity; never proof of speech. */
   readonly onSpeechActivity?: () => void;
   /** Called once per quiet interval, only after speech has been captured. */
   readonly onSilenceTimeout?: () => void;
@@ -143,6 +150,9 @@ export class AudioRecorder {
   private pcmChunks: Int16Array[] = [];
   private totalSamples = 0;
   private clippedSamples = 0;
+  private activity = new SpeechActivityDetector();
+  private processing: CaptureProcessingStatus = { echoCancellation: 'unreported', noiseSuppression: 'unreported', autoGainControl: 'unreported' };
+  public get processingStatus(): CaptureProcessingStatus { return { ...this.processing }; }
 
   private mediaStream: MediaStream | null = null;
   private captureContext: AudioContext | null = null;
@@ -233,14 +243,18 @@ export class AudioRecorder {
       );
     }
 
+    const inputDeviceId = loadInputDeviceId();
+    let supported: MediaTrackSupportedConstraints | undefined;
+    try { supported = mediaDevices.getSupportedConstraints?.(); } catch { /* Some browsers do not expose constraint discovery. */ }
     let stream: MediaStream;
     try {
       stream = await mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
+          ...(supported && !supported.echoCancellation ? {} : { echoCancellation: true }),
+          ...(supported && !supported.noiseSuppression ? {} : { noiseSuppression: true }),
+          ...(supported && !supported.autoGainControl ? {} : { autoGainControl: true }),
+          ...(inputDeviceId ? { deviceId: { exact: inputDeviceId } } : {}),
           ...(options.constraints ?? {}),
         },
         video: false,
@@ -258,7 +272,7 @@ export class AudioRecorder {
       this.lifecycleState = 'DEVICE_UNAVAILABLE_TEXT_FALLBACK';
       throw new MicrophoneCaptureError(
         'MIC_DEVICE_UNAVAILABLE',
-        `Unable to open microphone (${errName}); switched to typed fallback.`,
+        `Unable to open microphone (${errName}); switched to typed fallback. Choose System default in Microphone input settings if the selected device is unavailable.`,
         this.lifecycleState,
       );
     }
@@ -269,6 +283,13 @@ export class AudioRecorder {
     }
     const attemptMeta = this.startCaptureAttempt();
     this.mediaStream = stream;
+    this.processing = { echoCancellation: 'unreported', noiseSuppression: 'unreported', autoGainControl: 'unreported' };
+    try {
+      const settings = stream.getAudioTracks()[0]?.getSettings?.();
+      for (const key of ['echoCancellation', 'noiseSuppression', 'autoGainControl'] as const) {
+        if (typeof settings?.[key] === 'boolean') this.processing[key] = settings[key] ? 'enabled' : 'disabled';
+      }
+    } catch { /* Missing track settings do not imply that browser processing was applied. */ }
     this.mediaDevicesRef = mediaDevices;
     this.onFrameTelemetryCallback = options.onFrameTelemetry ?? null;
     this.onBackpressureCallback = options.onBackpressureLimitReached ?? null;
@@ -406,7 +427,7 @@ export class AudioRecorder {
         this.onBackpressureCallback();
       }
     }
-    if (this.recordingActive && frame.pcm16.length > 0 && frame.rmsNormalized >= SPEECH_RMS_THRESHOLD) {
+    if (this.recordingActive && this.activity.push(samples, inputSampleRateHz)) {
       this.resetSilenceDeadline();
       this.onSpeechActivityCallback?.();
     }
@@ -480,6 +501,7 @@ export class AudioRecorder {
       peakNormalized,
       lowEnergyWarning: rmsNormalized < LOW_ENERGY_RMS_THRESHOLD,
       clippedSamples: this.clippedSamples,
+      speechLikeActivityDetected: this.activity.hasActivity,
     };
   }
 
@@ -582,6 +604,7 @@ export class AudioRecorder {
     this.pcmChunks = [];
     this.totalSamples = 0;
     this.clippedSamples = 0;
+    this.activity.reset();
   }
 
   private resetBuffers(): void {

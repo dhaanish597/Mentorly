@@ -16,11 +16,13 @@ export function InterviewReportView({ report, onRecommendation }: ReportProps): 
     {report.answers.map(answer => <article key={answer.question_id} className="interview-answer-evidence">
       <h4>{answer.question}</h4><blockquote>{answer.answer}</blockquote>
       {answer.code && <details><summary>Submitted code (not executed)</summary><pre>{answer.code}</pre></details>}
+      {answer.semantic_review && <aside aria-label="Semantic explanation review"><h5>Explanation quality</h5><p>{answer.semantic_review.status.replace(/_/g, ' ')} · {answer.semantic_review.model_provenance.status.replace(/_/g, ' ')}</p><p>{answer.semantic_review.explanation}</p><p>{answer.semantic_review.uncertainty}</p><p>Follow-up: {answer.semantic_review.followup}</p><ul>{(answer.semantic_review.criteria ?? []).map(criterion => <li key={criterion.id}>{criterion.id.replace(/_/g, ' ')}: {criterion.status.replace(/_/g, ' ')} — {criterion.explanation}</li>)}</ul><small>Answer revision {answer.semantic_review.reviewed_answer_revision}. Reasoning quality is a model interpretation, not execution proof.</small></aside>}
       <ul>{answer.indicators.map(indicator => <li key={indicator.id}><strong>{indicator.label}</strong> — {indicator.value ? 'mentioned' : 'not observed'}; semantic validity unassessed.
         {indicator.excerpts.map(excerpt => <blockquote key={`${excerpt.start}:${excerpt.end}`}><q>{excerpt.text}</q><small>Exact answer excerpt, characters {excerpt.start}–{excerpt.end}</small></blockquote>)}
       </li>)}</ul>
     </article>)}
     <section aria-labelledby="interview-practice-title"><h3 id="interview-practice-title">Practice next</h3>
+      {report.practice_topics?.map(item => <article key={`${item.type}:${item.topic}`}><h4>{item.topic.replace(/-/g, ' ')}</h4><p>{item.reason}</p></article>)}
       {report.recommendations.length ? report.recommendations.map(item => <article key={`${item.exercise_id}:${item.spec_version}`} className="interview-recommendation"><p>{item.reason}</p><p>Exercise: <code>{item.exercise_id}</code> · {item.lesson_id ? `Lesson: ${item.lesson_id}` : 'Lesson mapping not available'}</p>
         {onRecommendation ? <button type="button" onClick={() => onRecommendation(item)}>Open recommended practice</button> : <a href={`/practice/${encodeURIComponent(item.exercise_id)}?spec=${encodeURIComponent(item.spec_version)}`}>Open recommended practice</a>}
       </article>) : <p>No catalog-backed lesson mapping is available for this interview type. Revisit your assumptions and add concrete examples.</p>}

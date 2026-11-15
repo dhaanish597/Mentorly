@@ -13,13 +13,31 @@ import { CurriculumPage } from './features/curriculum/CurriculumPage';
 import { LessonPage } from './features/curriculum/LessonPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { LearningProgressSection, ProgressPage } from './features/progress/ProgressPage';
+import { ensureWorkspaceSession, readWorkspaceSession } from './state/workspaceSession';
+import { InterviewReportRoute } from './features/interview/InterviewReportRoute';
+import type { Workspace } from './studioApi';
+import { ModuleVoice } from './voice/ModuleVoice';
 import './gamification.css';
 import './product-learning.css';
 
 const StudioApp = lazy(() => import('./StudioApp').then(module => ({ default: module.StudioApp })));
+const InterviewPage = lazy(() => import('./features/interview/InterviewPage').then(module => ({ default: module.InterviewPage })));
+function InterviewRoute() {
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let live = true; setError(null);
+    ensureWorkspaceSession().then(value => { if (live) setWorkspace(value); }).catch(error => { if (live) setError(error instanceof Error ? error.message : 'Interview workspace is unavailable.'); });
+    return () => { live = false; };
+  }, [retry]);
+  if (error) return <div className="learning-notice" role="alert"><p>{error}</p><button type="button" onClick={() => setRetry(value => value + 1)}>Retry interview workspace</button></div>;
+  if (!workspace) return <p role="status">Opening your interview workspace…</p>;
+  return <Suspense fallback={<p role="status">Loading interviews…</p>}><InterviewPage workspace={workspace} renderVoice={context => <ModuleVoice module="interview" sessionId={context.sessionId} epoch={context.epoch} messageId={context.messageId} workspace={workspace} onTranscript={context.onTranscript} />} /></Suspense>;
+}
 function safeDecode(value: string): string { try { return decodeURIComponent(value); } catch { return value; } }
 export function Shell({ children, current }: { children: ReactNode; current: string }) {
-  return <ProductShell current={current}><main id="product-main">{children}</main></ProductShell>;
+  return <ProductShell current={current}>{children}</ProductShell>;
 }
 function CollectionCards({ exercises, collections }: { exercises: ExerciseMetadata[]; collections: string[] }) {
   return <div className="collection-grid">{collections.map((name, index) => <article className={`product-card collection-card collection-${index % 3}`} key={name}>
@@ -108,7 +126,8 @@ export default function ProductApp() {
   return <ProductShell current={current} workspace={isWorkspace}>
     {path === '/dashboard' || path === '/paths' || path.startsWith('/paths/') || path === '/progress' ? <ProductPage page={path} />
       : path === '/learn' ? <CurriculumPage />
-      : path.startsWith('/learn/') ? <LessonPage key={path} lessonId={safeDecode(path.slice('/learn/'.length))} />
+      : path.startsWith('/learn/') ? <LessonPage key={url} search={search} lessonId={safeDecode(path.slice('/learn/'.length))} />
+      : path === '/interviews' ? new URLSearchParams(search).has('report') ? <InterviewReportRoute workspace={readWorkspaceSession()} search={search} /> : <InterviewRoute />
       : path === '/settings' ? <SettingsPage search={search} />
       : path === '/studio' || path.startsWith('/studio/') ? <Suspense fallback={<p role="status">Loading design studio…</p>}><StudioApp /></Suspense>
       : path === '/library' || path.startsWith('/practice/') ? <App />

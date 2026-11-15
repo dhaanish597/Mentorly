@@ -7,6 +7,7 @@ const links: { href: string; label: string; icon: IconName }[] = [
   { href: '/library', label: 'Practice', icon: 'code' },
   { href: '/learn', label: 'Learn', icon: 'paths' },
   { href: '/studio', label: 'Design studio', icon: 'design' },
+  { href: '/interviews', label: 'Interviews', icon: 'mic' },
   { href: '/progress', label: 'Progress', icon: 'progress' },
 ];
 
@@ -37,6 +38,7 @@ export function ProductShell({ children, current, workspace = false }: { childre
 
   return (
     <div className={`product-shell ${workspace ? 'product-workspace' : ''} ${questionOpen ? 'question-workspace' : ''}`}>
+      <a className="product-skip-link" href={workspace ? current.startsWith('/studio') ? '#studio-main' : '#main-content' : '#product-main'}>Skip to content</a>
       <aside className="product-sidebar">
         <BrandLogo href="/dashboard" compact={questionOpen} onNavigate={navigate} />
         <nav aria-label="Main navigation">
@@ -81,9 +83,7 @@ export function ProductShell({ children, current, workspace = false }: { childre
           <Icon name="settings" />
         </a>
       </div>
-      <div className={workspace ? 'product-workspace-content' : 'product-main'}>
-        {children}
-      </div>
+      {workspace ? <div className="product-workspace-content">{children}</div> : <main id="product-main" className="product-main">{children}</main>}
       <nav className="product-mobile-nav" aria-label="Quick navigation">
         {links.map(link => (
           <a

@@ -1,6 +1,47 @@
 {
   "components": {
     "schemas": {
+      "Answer": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_external": {
+            "default": false,
+            "title": "Allow External",
+            "type": "boolean"
+          },
+          "answer": {
+            "maxLength": 12000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 24000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Code"
+          },
+          "expected_epoch": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Expected Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_epoch",
+          "answer"
+        ],
+        "title": "Answer",
+        "type": "object"
+      },
       "AnswerDefense": {
         "additionalProperties": false,
         "properties": {
@@ -85,6 +126,196 @@
           "citations"
         ],
         "title": "AnswerDefense",
+        "type": "object"
+      },
+      "AnswerReport": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Code"
+          },
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/Indicator"
+            },
+            "title": "Indicators",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "question_id": {
+            "title": "Question Id",
+            "type": "string"
+          },
+          "semantic_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "question_id",
+          "question",
+          "answer",
+          "code",
+          "indicators"
+        ],
+        "title": "AnswerReport",
+        "type": "object"
+      },
+      "AnswerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_external": {
+            "default": false,
+            "title": "Allow External",
+            "type": "boolean"
+          },
+          "answer": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "expected_epoch": {
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Expected Epoch",
+            "type": "integer"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "maxLength": 12000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Explanation"
+          },
+          "option_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Option Id"
+          },
+          "question_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Question Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_epoch",
+          "question_id",
+          "answer"
+        ],
+        "title": "AnswerRequest",
+        "type": "object"
+      },
+      "Assessment": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "Assessment",
+        "type": "object"
+      },
+      "Attempt": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "step_id",
+          "answer",
+          "created_at"
+        ],
+        "title": "Attempt",
+        "type": "object"
+      },
+      "AudioResponse": {
+        "properties": {
+          "audio_base64": {
+            "title": "Audio Base64",
+            "type": "string"
+          },
+          "content_type": {
+            "const": "audio/wav",
+            "default": "audio/wav",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "audio_base64",
+          "epoch"
+        ],
+        "title": "AudioResponse",
         "type": "object"
       },
       "Body_submit_audio_turn_route_api_v1_sessions__session_id__turns_audio_post": {
@@ -295,6 +526,34 @@
         "title": "CapacityResponse",
         "type": "object"
       },
+      "Catalog": {
+        "additionalProperties": false,
+        "properties": {
+          "dsa_exercises": {
+            "items": {
+              "$ref": "#/components/schemas/Exercise"
+            },
+            "title": "Dsa Exercises",
+            "type": "array"
+          },
+          "topics": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Topics",
+            "type": "object"
+          }
+        },
+        "required": [
+          "topics",
+          "dsa_exercises"
+        ],
+        "title": "Catalog",
+        "type": "object"
+      },
       "CatalogProvenance": {
         "additionalProperties": false,
         "properties": {
@@ -383,6 +642,27 @@
         ],
         "title": "ChallengePurpose",
         "type": "string"
+      },
+      "Checkpoint": {
+        "properties": {
+          "completed_step_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Completed Step Ids",
+            "type": "array"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cursor",
+          "completed_step_ids"
+        ],
+        "title": "Checkpoint",
+        "type": "object"
       },
       "Citation": {
         "additionalProperties": false,
@@ -479,6 +759,21 @@
           "extraction_method": {
             "$ref": "#/components/schemas/ExtractionMethod"
           },
+          "model_status": {
+            "default": "DETERMINISTIC_FALLBACK",
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
+          },
           "provider_confidence": {
             "anyOf": [
               {
@@ -519,6 +814,35 @@
           "action"
         ],
         "title": "CoachAction",
+        "type": "object"
+      },
+      "CoachMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "kind",
+          "text"
+        ],
+        "title": "CoachMessage",
         "type": "object"
       },
       "CodeUpdateRequest": {
@@ -583,6 +907,74 @@
           "changed"
         ],
         "title": "CodeUpdateResponse",
+        "type": "object"
+      },
+      "Config": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment_policy": {
+            "title": "Assessment Policy",
+            "type": "string"
+          },
+          "camera_default": {
+            "title": "Camera Default",
+            "type": "boolean"
+          },
+          "camera_policy": {
+            "title": "Camera Policy",
+            "type": "string"
+          },
+          "difficulties": {
+            "items": {
+              "enum": [
+                "beginner",
+                "intermediate",
+                "advanced"
+              ],
+              "type": "string"
+            },
+            "title": "Difficulties",
+            "type": "array"
+          },
+          "duration_minutes": {
+            "$ref": "#/components/schemas/Duration"
+          },
+          "language_modes": {
+            "items": {
+              "$ref": "#/components/schemas/LanguageMode"
+            },
+            "title": "Language Modes",
+            "type": "array"
+          },
+          "language_policy": {
+            "title": "Language Policy",
+            "type": "string"
+          },
+          "types": {
+            "items": {
+              "enum": [
+                "dsa",
+                "cs",
+                "system_design",
+                "codebase_defense"
+              ],
+              "type": "string"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "types",
+          "difficulties",
+          "duration_minutes",
+          "language_modes",
+          "camera_default",
+          "camera_policy",
+          "assessment_policy",
+          "language_policy"
+        ],
+        "title": "Config",
         "type": "object"
       },
       "ConfirmClaimRequest": {
@@ -658,6 +1050,17 @@
       "ConversationVoiceRequest": {
         "additionalProperties": false,
         "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeechLocale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "revision": {
             "$ref": "#/components/schemas/RevisionRef"
           },
@@ -665,6 +1068,17 @@
             "format": "uuid",
             "title": "Turn Id",
             "type": "string"
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSVoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -719,6 +1133,28 @@
           },
           "spec_version": {
             "$ref": "#/components/schemas/SpecVersion"
+          },
+          "spoken_language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeechLocale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSVoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -751,12 +1187,34 @@
             "title": "Spec Acknowledged",
             "type": "boolean"
           },
+          "spoken_language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeechLocale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "starter_code": {
             "title": "Starter Code",
             "type": "string"
           },
           "state": {
             "$ref": "#/components/schemas/SessionState"
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSVoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -769,6 +1227,44 @@
           "spec_acknowledged"
         ],
         "title": "CreateSessionResponse",
+        "type": "object"
+      },
+      "Criterion": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "enum": [
+              "algorithm_correctness",
+              "architecture_reasoning",
+              "codebase_comprehension",
+              "technical_communication"
+            ],
+            "title": "Dimension",
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "observed_signal",
+              "abstained_insufficient_signal"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "status",
+          "evidence_ids"
+        ],
+        "title": "Criterion",
         "type": "object"
       },
       "DecisionRequest": {
@@ -1078,6 +1574,21 @@
           "extraction_method": {
             "$ref": "#/components/schemas/ExtractionMethod"
           },
+          "model_status": {
+            "default": "DETERMINISTIC_FALLBACK",
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
+          },
           "polarity": {
             "$ref": "#/components/schemas/ClaimPolarity"
           },
@@ -1105,6 +1616,58 @@
           "polarity"
         ],
         "title": "DomainValidityClaim",
+        "type": "object"
+      },
+      "DsaSessionReference": {
+        "properties": {
+          "exercise_id": {
+            "title": "Exercise Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "spec_version": {
+            "title": "Spec Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "exercise_id",
+          "spec_version",
+          "expires_at"
+        ],
+        "title": "DsaSessionReference",
+        "type": "object"
+      },
+      "Duration": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "maximum": {
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minimum",
+          "maximum",
+          "default"
+        ],
+        "title": "Duration",
         "type": "object"
       },
       "Edge": {
@@ -1166,6 +1729,22 @@
           "target_node_id"
         ],
         "title": "Edge",
+        "type": "object"
+      },
+      "EpochRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_epoch": {
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Expected Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_epoch"
+        ],
+        "title": "EpochRequest",
         "type": "object"
       },
       "EvidenceArtifact": {
@@ -1324,6 +1903,77 @@
         "title": "EvidenceArtifact",
         "type": "object"
       },
+      "EvidenceEvent": {
+        "properties": {
+          "assessment": {
+            "enum": [
+              "supported_observation",
+              "unsupported_claim",
+              "contradicted_by_source",
+              "needs_support"
+            ],
+            "title": "Assessment",
+            "type": "string"
+          },
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "feedback": {
+            "title": "Feedback",
+            "type": "string"
+          },
+          "mastery": {
+            "const": "not_established",
+            "title": "Mastery",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "step_id",
+          "assessment",
+          "feedback",
+          "question",
+          "citations",
+          "facts",
+          "mastery",
+          "basis",
+          "created_at"
+        ],
+        "title": "EvidenceEvent",
+        "type": "object"
+      },
       "EvidenceLink": {
         "additionalProperties": false,
         "properties": {
@@ -1369,6 +2019,44 @@
           "excerpt"
         ],
         "title": "EvidenceLink",
+        "type": "object"
+      },
+      "EvidenceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "minimum": 1.0,
+            "title": "End",
+            "type": "integer"
+          },
+          "excerpt": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "question",
+              "answer",
+              "lesson_rationale"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "start": {
+            "minimum": 0.0,
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "start",
+          "end",
+          "excerpt"
+        ],
+        "title": "EvidenceRef",
         "type": "object"
       },
       "EvidenceRequest": {
@@ -1422,6 +2110,30 @@
           "topic"
         ],
         "title": "EvidenceRequest",
+        "type": "object"
+      },
+      "Excerpt": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "title": "Start",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "text"
+        ],
+        "title": "Excerpt",
         "type": "object"
       },
       "ExecutionObservation": {
@@ -1533,6 +2245,56 @@
         ],
         "title": "ExecutionObservationKind",
         "type": "string"
+      },
+      "Exercise": {
+        "additionalProperties": false,
+        "properties": {
+          "constraints_summary": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Constraints Summary",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "difficulty": {
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "exercise_id": {
+            "title": "Exercise Id",
+            "type": "string"
+          },
+          "spec_version": {
+            "title": "Spec Version",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "exercise_id",
+          "title",
+          "description",
+          "difficulty",
+          "spec_version",
+          "topics",
+          "constraints_summary"
+        ],
+        "title": "Exercise",
+        "type": "object"
       },
       "ExerciseExample": {
         "additionalProperties": false,
@@ -1847,6 +2609,36 @@
         "title": "ExerciseSpecMetadata",
         "type": "object"
       },
+      "ExplanationReview": {
+        "additionalProperties": false,
+        "properties": {
+          "changes_objective_credit": {
+            "const": false,
+            "default": false,
+            "title": "Changes Objective Credit",
+            "type": "boolean"
+          },
+          "review": {
+            "$ref": "#/components/schemas/SemanticReview"
+          },
+          "status": {
+            "enum": [
+              "SUPPORTED",
+              "NEEDS_CLARIFICATION",
+              "INCORRECT_WITH_EVIDENCE",
+              "UNASSESSED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "review"
+        ],
+        "title": "ExplanationReview",
+        "type": "object"
+      },
       "ExtractionMethod": {
         "enum": [
           "DETERMINISTIC",
@@ -1855,6 +2647,28 @@
         ],
         "title": "ExtractionMethod",
         "type": "string"
+      },
+      "Fact": {
+        "properties": {
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source_path",
+              "identifier"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "expected"
+        ],
+        "title": "Fact",
+        "type": "object"
       },
       "FeedbackBody": {
         "additionalProperties": false,
@@ -1881,11 +2695,139 @@
         "title": "FeedbackBody",
         "type": "object"
       },
+      "FeedbackResult": {
+        "additionalProperties": false,
+        "description": "Assistance availability is separate from assessment correctness.",
+        "properties": {
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/Criterion"
+            },
+            "title": "Criteria",
+            "type": "array"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "event_sequence": {
+            "title": "Event Sequence",
+            "type": "integer"
+          },
+          "evidence_turn_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Turn Ids",
+            "type": "array"
+          },
+          "model_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/backend__app__studio__feedback__ModelProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "model_status": {
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "model_assisted",
+              "deterministic_fallback"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unassessed",
+              "abstained_insufficient_signal"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "uncertainty": {
+            "title": "Uncertainty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "question",
+          "evidence_turn_ids",
+          "uncertainty",
+          "source",
+          "criteria",
+          "model_status",
+          "event_sequence",
+          "epoch"
+        ],
+        "title": "FeedbackResult",
+        "type": "object"
+      },
+      "Finish": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_epoch": {
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Expected Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_epoch"
+        ],
+        "title": "Finish",
+        "type": "object"
+      },
       "FixedVoiceRequest": {
         "additionalProperties": false,
         "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeechLocale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "revision": {
             "$ref": "#/components/schemas/RevisionRef"
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSVoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -2155,6 +3097,57 @@
         "title": "HypothesisStatistics",
         "type": "object"
       },
+      "Indicator": {
+        "additionalProperties": false,
+        "properties": {
+          "excerpts": {
+            "items": {
+              "$ref": "#/components/schemas/Excerpt"
+            },
+            "title": "Excerpts",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "maximum": {
+            "const": 1,
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "semantic_validity": {
+            "const": "unassessed",
+            "title": "Semantic Validity",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "value": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "value",
+          "maximum",
+          "status",
+          "semantic_validity",
+          "excerpts"
+        ],
+        "title": "Indicator",
+        "type": "object"
+      },
       "InteractionMode": {
         "enum": [
           "VOICE",
@@ -2230,6 +3223,21 @@
             "title": "Mechanism Summary",
             "type": "string"
           },
+          "model_status": {
+            "default": "DETERMINISTIC_FALLBACK",
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
+          },
           "polarity": {
             "$ref": "#/components/schemas/ClaimPolarity",
             "default": "AFFIRMATIVE"
@@ -2259,11 +3267,392 @@
       "LanguageMode": {
         "enum": [
           "en-IN",
+          "hi-IN",
+          "ta-IN",
+          "te-IN",
+          "kn-IN",
+          "ml-IN",
+          "bn-IN",
+          "gu-IN",
+          "mr-IN",
+          "pa-IN",
           "ta-IN,en-IN",
-          "ta-IN,en-IN"
+          "ta-IN,en-IN",
+          "hi-IN,en-IN",
+          "bn-IN,en-IN"
         ],
         "title": "LanguageMode",
         "type": "string"
+      },
+      "LearningAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "expected_epoch": {
+            "minimum": 1.0,
+            "title": "Expected Epoch",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_epoch",
+          "answer"
+        ],
+        "title": "LearningAnswer",
+        "type": "object"
+      },
+      "LearningFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_key_revealed": {
+            "title": "Answer Key Revealed",
+            "type": "boolean"
+          },
+          "correct": {
+            "title": "Correct",
+            "type": "boolean"
+          },
+          "explanation_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplanationReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "correct",
+          "message",
+          "answer_key_revealed"
+        ],
+        "title": "LearningFeedback",
+        "type": "object"
+      },
+      "LearningPlan": {
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/Attempt"
+            },
+            "title": "Attempts",
+            "type": "array"
+          },
+          "checkpoint": {
+            "$ref": "#/components/schemas/Checkpoint"
+          },
+          "current_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningStep"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "evidence_events": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceEvent"
+            },
+            "title": "Evidence Events",
+            "type": "array"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "revisit_step_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Revisit Step Ids",
+            "type": "array"
+          },
+          "snapshot_hash": {
+            "title": "Snapshot Hash",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "learning",
+              "review",
+              "complete"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/LearningStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plan_id",
+          "snapshot_id",
+          "snapshot_hash",
+          "epoch",
+          "status",
+          "current_step",
+          "steps",
+          "checkpoint",
+          "revisit_step_ids",
+          "attempts",
+          "evidence_events",
+          "limitations"
+        ],
+        "title": "LearningPlan",
+        "type": "object"
+      },
+      "LearningQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "option_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Option Ids"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Options"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "response_kind": {
+            "enum": [
+              "multiple_choice",
+              "numeric",
+              "boolean",
+              "enumeration"
+            ],
+            "title": "Response Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prompt",
+          "response_kind"
+        ],
+        "title": "LearningQuestion",
+        "type": "object"
+      },
+      "LearningReport": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplanationReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "explanation_rubric": {
+            "title": "Explanation Rubric",
+            "type": "object"
+          },
+          "lesson_completed": {
+            "title": "Lesson Completed",
+            "type": "boolean"
+          },
+          "mastery_awarded": {
+            "const": false,
+            "title": "Mastery Awarded",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_completed",
+          "mastery_awarded",
+          "summary",
+          "explanation_rubric"
+        ],
+        "title": "LearningReport",
+        "type": "object"
+      },
+      "LearningSessionView": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_count": {
+            "title": "Answer Count",
+            "type": "integer"
+          },
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "coach_messages": {
+            "items": {
+              "$ref": "#/components/schemas/CoachMessage"
+            },
+            "title": "Coach Messages",
+            "type": "array"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "deadline": {
+            "title": "Deadline",
+            "type": "null"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hint"
+          },
+          "hint_count": {
+            "title": "Hint Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "language_mode": {
+            "title": "Language Mode",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "mode": {
+            "const": "practice",
+            "title": "Mode",
+            "type": "string"
+          },
+          "question": {
+            "$ref": "#/components/schemas/LearningQuestion"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "state": {
+            "enum": [
+              "active",
+              "completed",
+              "exhausted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lesson_id",
+          "epoch",
+          "mode",
+          "state",
+          "language_mode",
+          "catalog_version",
+          "content_hash",
+          "question",
+          "coach_messages",
+          "answer_count",
+          "hint_count",
+          "deadline",
+          "feedback",
+          "report"
+        ],
+        "title": "LearningSessionView",
+        "type": "object"
       },
       "LearningState": {
         "enum": [
@@ -2280,6 +3669,103 @@
         "title": "LearningState",
         "type": "string"
       },
+      "LearningStep": {
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "concept": {
+            "title": "Concept",
+            "type": "string"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/Fact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "mastery": {
+            "const": "not_established",
+            "title": "Mastery",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "fundamentals",
+              "entrypoint",
+              "components",
+              "flows",
+              "testing_tradeoffs"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "prerequisites": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_id",
+          "phase",
+          "concept",
+          "title",
+          "explanation",
+          "question",
+          "prerequisites",
+          "citations",
+          "facts",
+          "mastery"
+        ],
+        "title": "LearningStep",
+        "type": "object"
+      },
+      "Message": {
+        "additionalProperties": false,
+        "properties": {
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "title": "Source Refs",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "source_refs"
+        ],
+        "title": "Message",
+        "type": "object"
+      },
       "MinimizationStatus": {
         "enum": [
           "NOT_ATTEMPTED",
@@ -2288,76 +3774,6 @@
         ],
         "title": "MinimizationStatus",
         "type": "string"
-      },
-      "NewSession": {
-        "additionalProperties": false,
-        "properties": {
-          "duration_seconds": {
-            "anyOf": [
-              {
-                "maximum": 14400.0,
-                "minimum": 60.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Duration Seconds"
-          },
-          "mode": {
-            "title": "Mode",
-            "type": "string"
-          },
-          "posture": {
-            "title": "Posture",
-            "type": "string"
-          },
-          "repo_snapshot_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Repo Snapshot Id"
-          },
-          "scenario_id": {
-            "title": "Scenario Id",
-            "type": "string"
-          },
-          "scenario_version": {
-            "default": "1.0.0",
-            "title": "Scenario Version",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "session_token": {
-            "title": "Session Token",
-            "type": "string"
-          },
-          "workspace_id": {
-            "title": "Workspace Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "workspace_id",
-          "session_id",
-          "session_token",
-          "mode",
-          "posture",
-          "scenario_id"
-        ],
-        "title": "NewSession",
-        "type": "object"
       },
       "Node": {
         "additionalProperties": false,
@@ -2527,6 +3943,21 @@
           "extraction_method": {
             "$ref": "#/components/schemas/ExtractionMethod"
           },
+          "model_status": {
+            "default": "DETERMINISTIC_FALLBACK",
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
+          },
           "polarity": {
             "$ref": "#/components/schemas/ClaimPolarity",
             "default": "AFFIRMATIVE"
@@ -2656,6 +4087,44 @@
         "title": "PostureChange",
         "type": "object"
       },
+      "PracticeTopic": {
+        "additionalProperties": false,
+        "properties": {
+          "missing_indicators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Indicators",
+            "type": "array"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "dsa",
+              "cs",
+              "system_design",
+              "codebase_defense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "topic",
+          "reason",
+          "missing_indicators"
+        ],
+        "title": "PracticeTopic",
+        "type": "object"
+      },
       "PredictionStatus": {
         "enum": [
           "MATCH",
@@ -2683,6 +4152,55 @@
           "graph"
         ],
         "title": "Proposal",
+        "type": "object"
+      },
+      "Question": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "primary",
+              "followup"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Id"
+          },
+          "source_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            },
+            "title": "Source Refs",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "source_refs",
+          "id",
+          "kind",
+          "parent_id"
+        ],
+        "title": "Question",
         "type": "object"
       },
       "QuizSubmissionRequest": {
@@ -2713,6 +4231,218 @@
           "selected_option_index"
         ],
         "title": "QuizSubmissionRequest",
+        "type": "object"
+      },
+      "Recommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "exercise_id": {
+            "title": "Exercise Id",
+            "type": "string"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lesson Id"
+          },
+          "missing_indicators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Indicators",
+            "type": "array"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "spec_version": {
+            "title": "Spec Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exercise_id",
+          "spec_version",
+          "reason",
+          "missing_indicators"
+        ],
+        "title": "Recommendation",
+        "type": "object"
+      },
+      "RecoveryInfo": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expires At"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generation"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "RecoveryInfo",
+        "type": "object"
+      },
+      "RecoveryRestore": {
+        "additionalProperties": false,
+        "properties": {
+          "recovery_token": {
+            "pattern": "^[A-Za-z0-9_-]{43,128}$",
+            "title": "Recovery Token",
+            "type": "string"
+          },
+          "workspace_token": {
+            "pattern": "^[A-Za-z0-9_-]{43,128}$",
+            "title": "Workspace Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recovery_token",
+          "workspace_token"
+        ],
+        "title": "RecoveryRestore",
+        "type": "object"
+      },
+      "RecoverySetup": {
+        "additionalProperties": false,
+        "properties": {
+          "recovery_token": {
+            "pattern": "^[A-Za-z0-9_-]{43,128}$",
+            "title": "Recovery Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recovery_token"
+        ],
+        "title": "RecoverySetup",
+        "type": "object"
+      },
+      "Report": {
+        "additionalProperties": false,
+        "properties": {
+          "answered_count": {
+            "title": "Answered Count",
+            "type": "integer"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerReport"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "completed_at": {
+            "title": "Completed At",
+            "type": "string"
+          },
+          "completion_reason": {
+            "enum": [
+              "finished",
+              "timeout",
+              "questions_exhausted"
+            ],
+            "title": "Completion Reason",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "practice_topics": {
+            "items": {
+              "$ref": "#/components/schemas/PracticeTopic"
+            },
+            "title": "Practice Topics",
+            "type": "array"
+          },
+          "psychology": {
+            "$ref": "#/components/schemas/Assessment"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/Recommendation"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          },
+          "semantic_validity": {
+            "$ref": "#/components/schemas/Assessment"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "technical_correctness": {
+            "$ref": "#/components/schemas/Assessment"
+          }
+        },
+        "required": [
+          "session_id",
+          "completion_reason",
+          "completed_at",
+          "answered_count",
+          "semantic_validity",
+          "technical_correctness",
+          "psychology",
+          "answers",
+          "recommendations",
+          "limitations"
+        ],
+        "title": "Report",
+        "type": "object"
+      },
+      "RestoredWorkspace": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "expires_at"
+        ],
+        "title": "RestoredWorkspace",
         "type": "object"
       },
       "RetryExecutionRequest": {
@@ -2835,30 +4565,160 @@
         "title": "RevisionRef",
         "type": "object"
       },
-      "STTBody": {
+      "SemanticCriterion": {
         "additionalProperties": false,
         "properties": {
-          "audio_base64": {
-            "maxLength": 2000000,
+          "evidence_refs": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "maxItems": 4,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "explanation": {
+            "maxLength": 600,
             "minLength": 1,
-            "title": "Audio Base64",
+            "title": "Explanation",
             "type": "string"
           },
-          "epoch": {
-            "minimum": 1.0,
-            "title": "Epoch",
-            "type": "integer"
+          "id": {
+            "enum": [
+              "relevance",
+              "reasoning_coherence",
+              "assumptions",
+              "example_alignment"
+            ],
+            "title": "Id",
+            "type": "string"
           },
-          "language_mode": {
-            "$ref": "#/components/schemas/LanguageMode",
-            "default": "en-IN"
+          "status": {
+            "enum": [
+              "SUPPORTED",
+              "PARTIALLY_SUPPORTED",
+              "CONTRADICTED_BY_EVIDENCE",
+              "INSUFFICIENT_EVIDENCE"
+            ],
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
-          "epoch",
-          "audio_base64"
+          "id",
+          "status",
+          "explanation",
+          "evidence_refs"
         ],
-        "title": "STTBody",
+        "title": "SemanticCriterion",
+        "type": "object"
+      },
+      "SemanticReview": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Answer Sha256",
+            "type": "string"
+          },
+          "context_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Context Sha256",
+            "type": "string"
+          },
+          "correctness_assessed": {
+            "const": false,
+            "default": false,
+            "title": "Correctness Assessed",
+            "type": "boolean"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticCriterion"
+            },
+            "maxItems": 4,
+            "title": "Criteria",
+            "type": "array"
+          },
+          "evidence_refs": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "maxItems": 16,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "followup": {
+            "title": "Followup",
+            "type": "string"
+          },
+          "model_provenance": {
+            "$ref": "#/components/schemas/backend__app__assessments__schemas__ModelProvenance"
+          },
+          "reviewed_answer_revision": {
+            "minimum": 1.0,
+            "title": "Reviewed Answer Revision",
+            "type": "integer"
+          },
+          "rubric_version": {
+            "const": "semantic-quality-v1",
+            "default": "semantic-quality-v1",
+            "title": "Rubric Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "SUPPORTED",
+              "PARTIALLY_SUPPORTED",
+              "CONTRADICTED_BY_EVIDENCE",
+              "INSUFFICIENT_EVIDENCE",
+              "NOT_EVALUATED",
+              "MODEL_UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "uncertainty": {
+            "title": "Uncertainty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "uncertainty",
+          "explanation",
+          "followup",
+          "reviewed_answer_revision",
+          "answer_sha256",
+          "context_sha256",
+          "model_provenance"
+        ],
+        "title": "SemanticReview",
+        "type": "object"
+      },
+      "SessionCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "session_token": {
+            "maxLength": 256,
+            "minLength": 32,
+            "title": "Session Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_token"
+        ],
+        "title": "SessionCapability",
         "type": "object"
       },
       "SessionExportResponse": {
@@ -2916,6 +4776,172 @@
         "title": "SessionState",
         "type": "string"
       },
+      "SessionView": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledgement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "deadline_at": {
+            "title": "Deadline At",
+            "type": "string"
+          },
+          "difficulty": {
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "introduction": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "language_mode": {
+            "$ref": "#/components/schemas/LanguageMode"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Question"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Report"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "completed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "dsa",
+              "cs",
+              "system_design",
+              "codebase_defense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "difficulty",
+          "topics",
+          "duration_minutes",
+          "language_mode",
+          "epoch",
+          "state",
+          "started_at",
+          "deadline_at",
+          "introduction",
+          "acknowledgement",
+          "question",
+          "report"
+        ],
+        "title": "SessionView",
+        "type": "object"
+      },
+      "SourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "exercise_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Exercise Id"
+          },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Policy Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "spec_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Spec Version"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "SourceRef",
+        "type": "object"
+      },
       "SpecAckRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2961,6 +4987,22 @@
         "title": "SpecVersion",
         "type": "string"
       },
+      "SpeechLocale": {
+        "enum": [
+          "en-IN",
+          "hi-IN",
+          "ta-IN",
+          "te-IN",
+          "kn-IN",
+          "ml-IN",
+          "bn-IN",
+          "gu-IN",
+          "mr-IN",
+          "pa-IN"
+        ],
+        "title": "SpeechLocale",
+        "type": "string"
+      },
       "StartDefense": {
         "additionalProperties": false,
         "properties": {
@@ -2977,25 +5019,47 @@
         "title": "StartDefense",
         "type": "object"
       },
-      "TTSBody": {
-        "additionalProperties": false,
+      "StudioSessionReference": {
         "properties": {
-          "epoch": {
-            "minimum": 1.0,
-            "title": "Epoch",
+          "diagram_revision": {
+            "title": "Diagram Revision",
             "type": "integer"
           },
-          "event_sequence": {
-            "minimum": 1.0,
-            "title": "Event Sequence",
-            "type": "integer"
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "scenario_id": {
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "scenario_version": {
+            "title": "Scenario Version",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
           }
         },
         "required": [
-          "epoch",
-          "event_sequence"
+          "id",
+          "mode",
+          "scenario_id",
+          "scenario_version",
+          "expires_at",
+          "diagram_revision",
+          "state"
         ],
-        "title": "TTSBody",
+        "title": "StudioSessionReference",
         "type": "object"
       },
       "TTSPlaybackRequest": {
@@ -3010,8 +5074,35 @@
             "$ref": "#/components/schemas/HintLevel",
             "default": 1
           },
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeechLocale"
+              },
+              {
+                "const": "auto",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Language"
+          },
           "revision": {
             "$ref": "#/components/schemas/RevisionRef"
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSVoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -3020,6 +5111,25 @@
         ],
         "title": "TTSPlaybackRequest",
         "type": "object"
+      },
+      "TTSVoice": {
+        "enum": [
+          "Avinash",
+          "Shivani",
+          "Lakshmi",
+          "Kalpana",
+          "Shubham",
+          "Prakash",
+          "Devansh",
+          "Yashraj",
+          "Chetana",
+          "Vasudha",
+          "Riyaa",
+          "Tarika",
+          "Harshad"
+        ],
+        "title": "TTSVoice",
+        "type": "string"
       },
       "TextTurnRequest": {
         "additionalProperties": false,
@@ -3052,6 +5162,37 @@
           "revision"
         ],
         "title": "TextTurnRequest",
+        "type": "object"
+      },
+      "TranscriptResponse": {
+        "properties": {
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "normalized_transcript": {
+            "maxLength": 4000,
+            "title": "Normalized Transcript",
+            "type": "string"
+          },
+          "raw_transcript": {
+            "maxLength": 4000,
+            "title": "Raw Transcript",
+            "type": "string"
+          },
+          "requires_confirmation": {
+            "const": true,
+            "default": true,
+            "title": "Requires Confirmation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "raw_transcript",
+          "normalized_transcript",
+          "epoch"
+        ],
+        "title": "TranscriptResponse",
         "type": "object"
       },
       "Turn": {
@@ -3167,6 +5308,21 @@
           },
           "extraction_method": {
             "$ref": "#/components/schemas/ExtractionMethod"
+          },
+          "model_status": {
+            "default": "DETERMINISTIC_FALLBACK",
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
           },
           "provider_confidence": {
             "anyOf": [
@@ -3611,6 +5767,454 @@
         ],
         "title": "Workspace",
         "type": "object"
+      },
+      "WorkspaceArchive": {
+        "properties": {
+          "content_sha256": {
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/WorkspaceArchiveData"
+          },
+          "format": {
+            "default": "viva-workspace-archive",
+            "title": "Format",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "content_sha256",
+          "data"
+        ],
+        "title": "WorkspaceArchive",
+        "type": "object"
+      },
+      "WorkspaceArchiveData": {
+        "properties": {
+          "dsa_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/DsaSessionReference"
+            },
+            "title": "Dsa Sessions",
+            "type": "array"
+          },
+          "interview_reports": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Interview Reports",
+            "type": "array"
+          },
+          "interviews": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Interviews",
+            "type": "array"
+          },
+          "learning_answers": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Learning Answers",
+            "type": "array"
+          },
+          "learning_sessions": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Learning Sessions",
+            "type": "array"
+          },
+          "studio_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/StudioSessionReference"
+            },
+            "title": "Studio Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "studio_sessions",
+          "dsa_sessions",
+          "learning_sessions",
+          "learning_answers",
+          "interviews",
+          "interview_reports"
+        ],
+        "title": "WorkspaceArchiveData",
+        "type": "object"
+      },
+      "backend__app__assessments__schemas__ModelProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Request Id"
+          },
+          "status": {
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "MODEL_BUDGET_EXHAUSTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "request_id",
+          "status"
+        ],
+        "title": "ModelProvenance",
+        "type": "object"
+      },
+      "backend__app__interviews__schemas__NewSession": {
+        "additionalProperties": false,
+        "properties": {
+          "difficulty": {
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ],
+            "title": "Difficulty",
+            "type": "string"
+          },
+          "duration_minutes": {
+            "maximum": 60.0,
+            "minimum": 5.0,
+            "title": "Duration Minutes",
+            "type": "integer"
+          },
+          "language_mode": {
+            "$ref": "#/components/schemas/LanguageMode"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Topics",
+            "type": "array"
+          },
+          "type": {
+            "enum": [
+              "dsa",
+              "cs",
+              "system_design",
+              "codebase_defense"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "difficulty",
+          "duration_minutes",
+          "language_mode"
+        ],
+        "title": "NewSession",
+        "type": "object"
+      },
+      "backend__app__learning__routes__NewSession": {
+        "additionalProperties": false,
+        "properties": {
+          "language_mode": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Language Mode",
+            "type": "string"
+          },
+          "lesson_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "mode": {
+            "const": "practice",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "mode",
+          "language_mode"
+        ],
+        "title": "NewSession",
+        "type": "object"
+      },
+      "backend__app__learning_voice__schemas__STTBody": {
+        "additionalProperties": false,
+        "properties": {
+          "audio_base64": {
+            "maxLength": 1398104,
+            "minLength": 1,
+            "title": "Audio Base64",
+            "type": "string"
+          },
+          "epoch": {
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "language_mode": {
+            "$ref": "#/components/schemas/LanguageMode",
+            "default": "en-IN"
+          }
+        },
+        "required": [
+          "epoch",
+          "audio_base64"
+        ],
+        "title": "STTBody",
+        "type": "object"
+      },
+      "backend__app__learning_voice__schemas__TTSBody": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch": {
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "language": {
+            "$ref": "#/components/schemas/SpeechLocale",
+            "default": "en-IN"
+          },
+          "message_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Message Id",
+            "type": "string"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/TTSVoice",
+            "default": "Avinash"
+          }
+        },
+        "required": [
+          "epoch",
+          "message_id"
+        ],
+        "title": "TTSBody",
+        "type": "object"
+      },
+      "backend__app__studio__feedback__ModelProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "request_id"
+        ],
+        "title": "ModelProvenance",
+        "type": "object"
+      },
+      "backend__app__studio__routes__NewSession": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "maximum": 14400.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Duration Seconds"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "posture": {
+            "title": "Posture",
+            "type": "string"
+          },
+          "repo_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Repo Snapshot Id"
+          },
+          "scenario_id": {
+            "title": "Scenario Id",
+            "type": "string"
+          },
+          "scenario_version": {
+            "default": "1.0.0",
+            "title": "Scenario Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_token": {
+            "title": "Session Token",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "session_id",
+          "session_token",
+          "mode",
+          "posture",
+          "scenario_id"
+        ],
+        "title": "NewSession",
+        "type": "object"
+      },
+      "backend__app__studio__speech__STTBody": {
+        "additionalProperties": false,
+        "properties": {
+          "audio_base64": {
+            "maxLength": 2000000,
+            "minLength": 1,
+            "title": "Audio Base64",
+            "type": "string"
+          },
+          "epoch": {
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "language_mode": {
+            "$ref": "#/components/schemas/LanguageMode",
+            "default": "en-IN"
+          }
+        },
+        "required": [
+          "epoch",
+          "audio_base64"
+        ],
+        "title": "STTBody",
+        "type": "object"
+      },
+      "backend__app__studio__speech__TTSBody": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch": {
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "event_sequence": {
+            "minimum": 1.0,
+            "title": "Event Sequence",
+            "type": "integer"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeechLocale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSVoice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "epoch",
+          "event_sequence"
+        ],
+        "title": "TTSBody",
+        "type": "object"
       }
     }
   },
@@ -3841,6 +6445,883 @@
         ]
       }
     },
+    "/api/v1/interviews/catalog": {
+      "get": {
+        "operationId": "question_catalog_api_v1_interviews_catalog_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalog"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Question Catalog",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/config": {
+      "get": {
+        "operationId": "config_api_v1_interviews_config_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Config",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/reports/{session_id}": {
+      "get": {
+        "description": "Read an already persisted report without advancing the interview lifecycle.",
+        "operationId": "get_report_api_v1_interviews_reports__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Report",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/sessions": {
+      "post": {
+        "operationId": "create_session_api_v1_interviews_sessions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__app__interviews__schemas__NewSession"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Session",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_api_v1_interviews_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/sessions/{session_id}/answers": {
+      "post": {
+        "operationId": "answer_api_v1_interviews_sessions__session_id__answers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Answer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/sessions/{session_id}/finish": {
+      "post": {
+        "operationId": "finish_api_v1_interviews_sessions__session_id__finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 64,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-workspace-token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Finish"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish",
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/learning/catalog": {
+      "get": {
+        "operationId": "get_catalog_api_v1_learning_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Catalog Api V1 Learning Catalog Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Catalog",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/progress": {
+      "get": {
+        "operationId": "get_progress_api_v1_learning_progress_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Progress Api V1 Learning Progress Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Progress",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/sessions": {
+      "post": {
+        "operationId": "new_session_api_v1_learning_sessions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__app__learning__routes__NewSession"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "New Session",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_api_v1_learning_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/sessions/{session_id}/answers": {
+      "post": {
+        "operationId": "answer_api_v1_learning_sessions__session_id__answers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/sessions/{session_id}/hints": {
+      "post": {
+        "operationId": "hint_api_v1_learning_sessions__session_id__hints_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpochRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Hint",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
+    "/api/v1/learning/sessions/{session_id}/restart": {
+      "post": {
+        "operationId": "restart_api_v1_learning_sessions__session_id__restart_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpochRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningSessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restart",
+        "tags": [
+          "learning"
+        ]
+      }
+    },
     "/api/v1/meta/branding": {
       "get": {
         "description": "Return user-facing branding from config/branding.json.",
@@ -3934,6 +7415,182 @@
         "summary": "Get Health",
         "tags": [
           "meta"
+        ]
+      }
+    },
+    "/api/v1/module-voice/{module}/{session_id}/stt": {
+      "post": {
+        "operationId": "stt_api_v1_module_voice__module___session_id__stt_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "enum": [
+                "lesson",
+                "interview",
+                "redrive"
+              ],
+              "title": "Module",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__app__learning_voice__schemas__STTBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stt",
+        "tags": [
+          "module-voice"
+        ]
+      }
+    },
+    "/api/v1/module-voice/{module}/{session_id}/tts": {
+      "post": {
+        "operationId": "tts_api_v1_module_voice__module___session_id__tts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "module",
+            "required": true,
+            "schema": {
+              "enum": [
+                "lesson",
+                "interview",
+                "redrive"
+              ],
+              "title": "Module",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__app__learning_voice__schemas__TTSBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tts",
+        "tags": [
+          "module-voice"
         ]
       }
     },
@@ -4043,6 +7700,136 @@
         "summary": "Import Repo",
         "tags": [
           "repository-learning"
+        ]
+      }
+    },
+    "/api/v1/repos/learning-plans/{plan_id}": {
+      "get": {
+        "operationId": "get_learning_plan_api_v1_repos_learning_plans__plan_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Learning Plan",
+        "tags": [
+          "repository-beginner-learning"
+        ]
+      }
+    },
+    "/api/v1/repos/learning-plans/{plan_id}/answers": {
+      "post": {
+        "operationId": "answer_learning_plan_api_v1_repos_learning_plans__plan_id__answers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plan_id",
+            "required": true,
+            "schema": {
+              "title": "Plan Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningAnswer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Learning Plan",
+        "tags": [
+          "repository-beginner-learning"
         ]
       }
     },
@@ -4692,6 +8479,124 @@
         ]
       }
     },
+    "/api/v1/repos/{snapshot_id}/learning-plan": {
+      "get": {
+        "operationId": "get_snapshot_learning_plan_api_v1_repos__snapshot_id__learning_plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Snapshot Learning Plan",
+        "tags": [
+          "repository-beginner-learning"
+        ]
+      },
+      "post": {
+        "operationId": "create_learning_plan_api_v1_repos__snapshot_id__learning_plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Learning Plan",
+        "tags": [
+          "repository-beginner-learning"
+        ]
+      }
+    },
     "/api/v1/repos/{snapshot_id}/map": {
       "get": {
         "operationId": "repo_map_api_v1_repos__snapshot_id__map_get",
@@ -5099,6 +9004,61 @@
         "summary": "Update Code Route",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/conversation/text": {
+      "post": {
+        "description": "Transcript-aware saved reply, independent of TTS availability.",
+        "operationId": "conversation_text_api_v1_sessions__session_id__conversation_text_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationVoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Conversation Text Api V1 Sessions  Session Id  Conversation Text Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Conversation Text",
+        "tags": [
+          "speech"
         ]
       }
     },
@@ -6053,6 +10013,28 @@
         ]
       }
     },
+    "/api/v1/speech/capabilities": {
+      "get": {
+        "operationId": "speech_capability_info_api_v1_speech_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Speech Capability Info Api V1 Speech Capabilities Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Speech Capability Info",
+        "tags": [
+          "speech"
+        ]
+      }
+    },
     "/api/v1/studio/scenarios": {
       "get": {
         "operationId": "scenarios_api_v1_studio_scenarios_get",
@@ -6101,7 +10083,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/NewSession"
+                "$ref": "#/components/schemas/backend__app__studio__routes__NewSession"
               }
             }
           },
@@ -6769,7 +10751,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -7237,7 +11221,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/STTBody"
+                "$ref": "#/components/schemas/backend__app__studio__speech__STTBody"
               }
             }
           },
@@ -7307,7 +11291,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TTSBody"
+                "$ref": "#/components/schemas/backend__app__studio__speech__TTSBody"
               }
             }
           },
@@ -7718,6 +11702,137 @@
         ]
       }
     },
+    "/api/v1/studio/workspaces/{wid}/archive": {
+      "get": {
+        "operationId": "export_workspace_api_v1_studio_workspaces__wid__archive_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceArchive"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Workspace",
+        "tags": [
+          "workspace recovery"
+        ]
+      }
+    },
+    "/api/v1/studio/workspaces/{wid}/dsa-sessions/{sid}/link": {
+      "post": {
+        "operationId": "link_dsa_api_v1_studio_workspaces__wid__dsa_sessions__sid__link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCapability"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link Dsa",
+        "tags": [
+          "workspace recovery"
+        ]
+      }
+    },
     "/api/v1/studio/workspaces/{wid}/extend": {
       "post": {
         "operationId": "extend_workspace_api_v1_studio_workspaces__wid__extend_post",
@@ -7775,6 +11890,240 @@
         "summary": "Extend Workspace",
         "tags": [
           "studio"
+        ]
+      }
+    },
+    "/api/v1/studio/workspaces/{wid}/recover": {
+      "post": {
+        "operationId": "restore_workspace_api_v1_studio_workspaces__wid__recover_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryRestore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoredWorkspace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Workspace",
+        "tags": [
+          "workspace recovery"
+        ]
+      }
+    },
+    "/api/v1/studio/workspaces/{wid}/recovery": {
+      "delete": {
+        "operationId": "revoke_recovery_api_v1_studio_workspaces__wid__recovery_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Recovery",
+        "tags": [
+          "workspace recovery"
+        ]
+      },
+      "get": {
+        "operationId": "recovery_info_api_v1_studio_workspaces__wid__recovery_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recovery Info",
+        "tags": [
+          "workspace recovery"
+        ]
+      },
+      "put": {
+        "operationId": "configure_recovery_api_v1_studio_workspaces__wid__recovery_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoverySetup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Configure Recovery",
+        "tags": [
+          "workspace recovery"
         ]
       }
     },
@@ -7904,6 +12253,85 @@
         "summary": "Rate Review",
         "tags": [
           "studio"
+        ]
+      }
+    },
+    "/api/v1/studio/workspaces/{wid}/sessions/{sid}/capability": {
+      "post": {
+        "operationId": "renew_session_api_v1_studio_workspaces__wid__sessions__sid__capability_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "wid",
+            "required": true,
+            "schema": {
+              "title": "Wid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sid",
+            "required": true,
+            "schema": {
+              "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-idempotency-key",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCapability"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Renew Session",
+        "tags": [
+          "workspace recovery"
         ]
       }
     }

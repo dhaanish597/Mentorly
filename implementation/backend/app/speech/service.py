@@ -28,6 +28,7 @@ class SpeechService:
         cache_dir: str | Path,
         api_key: str | None = None,
         settings: Settings | None = None,
+        recover_usage: bool = True,
     ) -> None:
         configured = settings or Settings(_env_file=None)
         self.settings = configured
@@ -45,11 +46,14 @@ class SpeechService:
         self.gatekeeper = SpeechGatekeeper(
             self.adapter,
             db_path=db_path,
+            max_concurrency=configured.gnani_max_concurrency,
+            verified_concurrency=configured.gnani_verified_concurrency,
             per_session_stt_seconds=configured.max_stt_seconds_per_session,
             per_session_tts_chars=configured.max_tts_chars_per_session,
             global_daily_call_limit=configured.global_daily_call_limit,
         )
-        self.gatekeeper.recover_pending_usage()
+        if recover_usage:
+            self.gatekeeper.recover_pending_usage()
         self.ws = GnaniWebSocketSTTRelay(self.gatekeeper)
         self._tasks: dict[tuple[str, int], set[asyncio.Task]] = {}
 

@@ -27,3 +27,12 @@ def test_legacy_personalization_is_retired_without_database_changes(tmp_path, me
     with closing(open_connection(db_path)) as db:
         assert db.execute('SELECT COUNT(*) FROM user_profiles').fetchone()[0] == before
         assert db.execute('SELECT COUNT(*) FROM daily_quiz_attempts').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('path', ['/api/v1/interviews/sessions', '/api/v1/learning/sessions', '/api/v1/module-voice/lesson/example/tts'])
+def test_product_request_bodies_are_bounded_before_json_parsing(tmp_path, path):
+    db_path = tmp_path / 'test.db'
+    SQLiteRepository(db_path).initialize()
+    client = TestClient(create_app(Settings(_env_file=None, database_path=db_path, env='test')))
+    response = client.post(path, content=b'x' * 262145, headers={'Content-Type': 'application/json'})
+    assert response.status_code == 413

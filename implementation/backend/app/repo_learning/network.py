@@ -10,6 +10,10 @@ from collections.abc import Awaitable, Callable, Iterable
 import ipaddress
 import socket
 import ssl
+import re
+from dataclasses import dataclass
+from types import MappingProxyType
+from urllib.parse import urlsplit
 
 import httpcore
 import httpx
@@ -17,7 +21,49 @@ from httpcore._backends.anyio import AnyIOBackend
 
 from .ingest import ImportFailure
 
-ARCHIVE_HOSTS = frozenset({'codeload.github.com', 'gitlab.com'})
+@dataclass(frozen=True)
+class ArchiveProvider:
+    repository_host: str
+    archive_host: str
+    nested_namespaces: bool = False
+
+    def archive_url(self, path: tuple[str, ...]) -> str:
+        namespace, repo = '/'.join(path[:-1]), path[-1]
+        if self.repository_host == 'github.com':
+            return f'https://{self.archive_host}/{namespace}/{repo}/zip/HEAD'
+        return f'https://{self.archive_host}/{namespace}/{repo}/-/archive/HEAD/{repo}-HEAD.zip'
+
+
+# Only reviewed public HTTPS providers belong here. Adding an adapter requires
+# matching DNS/TLS security tests and a reviewed, redirect-free archive endpoint.
+TRUSTED_PROVIDERS = MappingProxyType({
+    'github.com': ArchiveProvider('github.com', 'codeload.github.com'),
+    'gitlab.com': ArchiveProvider('gitlab.com', 'gitlab.com', nested_namespaces=True),
+})
+ARCHIVE_HOSTS = frozenset(provider.archive_host for provider in TRUSTED_PROVIDERS.values())
+UNSUPPORTED_URL = 'Unsupported public repository URL. Use a GitHub or GitLab project URL, or upload a ZIP archive.'
+
+
+def public_archive_url(locator: str) -> str:
+    """Resolve trusted project locators; never accept arbitrary archive URLs."""
+    if not isinstance(locator, str) or len(locator) > 1024 or any(not 33 <= ord(char) <= 126 for char in locator):
+        raise ImportFailure(UNSUPPORTED_URL)
+    try:
+        url = urlsplit(locator)
+    except ValueError as exc:
+        raise ImportFailure(UNSUPPORTED_URL) from exc
+    provider = TRUSTED_PROVIDERS.get(url.netloc.lower())
+    if url.scheme != 'https' or provider is None or '?' in locator or '#' in locator or '\\' in locator:
+        raise ImportFailure(UNSUPPORTED_URL)
+    parts = url.path.strip('/').split('/')
+    if not 2 <= len(parts) <= (8 if provider.nested_namespaces else 2):
+        raise ImportFailure(UNSUPPORTED_URL)
+    if not all(re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', part) and part not in ('.', '..') for part in parts):
+        raise ImportFailure(UNSUPPORTED_URL)
+    parts[-1] = parts[-1].removesuffix('.git')
+    if not parts[-1] or parts[-1] in ('.', '..'):
+        raise ImportFailure(UNSUPPORTED_URL)
+    return provider.archive_url(tuple(parts))
 DNS_TIMEOUT = 5.0
 Resolver = Callable[[str, int], Awaitable[list[str]]]
 

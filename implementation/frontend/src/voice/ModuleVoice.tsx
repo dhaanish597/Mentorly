@@ -20,7 +20,7 @@ export interface ModuleVoiceProps {
 
 type Phase = 'idle' | 'permission' | 'recording' | 'recognizing' | 'loading' | 'playing';
 interface Runtime {
-  recorder: AudioRecorder;
+  recorder: AudioRecorder | null;
   player: AudioPlayer;
   controller: VoiceController;
   abort: AbortController | null;
@@ -52,6 +52,12 @@ function stop(runtime: Runtime): void {
   runtime.generation++;
   runtime.abort?.abort(); runtime.abort = null;
   runtime.controller.bargeInStop();
+}
+function discardRecording(runtime: Runtime): void {
+  const recorder = runtime.recorder;
+  runtime.recorder = null;
+  // Detach identity before asynchronous cleanup so a retry owns independent buffers.
+  void recorder?.dispose();
 }
 async function requestVoice(url: string, workspace: ModuleVoiceProps['workspace'],
   body: object, abort: AbortController): Promise<Record<string, unknown>> {
@@ -88,13 +94,13 @@ function SourceVoice({ module, sessionId, epoch, workspace, messageId, onTranscr
   useEffect(() => { transcript.current = onTranscript; }, [onTranscript]);
   useEffect(() => {
     const player = new AudioPlayer();
-    const current: Runtime = { recorder: new AudioRecorder(sessionId, epoch), player,
+    const current: Runtime = { recorder: null, player,
       controller: new VoiceController(player), abort: null, generation: 0,
       audio: loadAudioPreferences(), speech: loadSpeechPreferences() };
     runtime.current = current;
     const cancel = () => {
       stop(current); current.controller.clearReplay();
-      void current.recorder.dispose(); setPhase('idle'); setProgress(0);
+      discardRecording(current); setPhase('idle'); setProgress(0);
     };
     const unAudio = subscribeAudioPreferences(next => {
       current.audio = next; current.controller.setPreferences(next); setPreferences(next);
@@ -106,7 +112,7 @@ function SourceVoice({ module, sessionId, epoch, workspace, messageId, onTranscr
     });
     return () => {
       unAudio(); unSpeech(); stop(current); runtime.current = null;
-      void current.recorder.dispose(); void current.controller.dispose();
+      discardRecording(current); void current.controller.dispose();
     };
   }, [sessionId, epoch]);
 
@@ -114,7 +120,11 @@ function SourceVoice({ module, sessionId, epoch, workspace, messageId, onTranscr
     if (phase !== 'playing') return;
     const timer = setInterval(() => {
       const current = runtime.current;
-      if (current) setProgress(current.player.playbackProgress);
+      if (current) {
+        setProgress(current.player.playbackProgress);
+        // Replay intentionally drops delivery callbacks; its real audio clock still ends.
+        if (!current.player.isPlaying) setPhase('idle');
+      }
     }, 100);
     return () => clearInterval(timer);
   }, [phase]);
@@ -127,12 +137,14 @@ function SourceVoice({ module, sessionId, epoch, workspace, messageId, onTranscr
 
   async function finishRecording(): Promise<void> {
     const current = runtime.current;
-    if (!current) return;
+    const recorder = current?.recorder;
+    if (!current || !recorder) return;
     const generation = ++current.generation;
     setPhase('recognizing'); setError('');
     try {
-      const captured = await current.recorder.stopMicrophoneCapture();
-      await current.recorder.dispose(); // Shared recorder clears its transient PCM buffers.
+      const captured = await recorder.stopMicrophoneCapture();
+      await recorder.dispose(); // Dispose this attempt only, never a newer capture.
+      if (current.recorder === recorder) current.recorder = null;
       if (runtime.current !== current || generation !== current.generation) return;
       if (captured.lowEnergyWarning) setNotice('Recording was quiet. Review your recognized draft.');
       const selection = resolveSpeechSelection(current.speech);
@@ -152,18 +164,29 @@ function SourceVoice({ module, sessionId, epoch, workspace, messageId, onTranscr
   async function startRecording(): Promise<void> {
     const current = runtime.current;
     if (!current || current.audio.textOnly) return;
-    stop(current); const generation = current.generation;
+    stop(current); discardRecording(current);
+    const generation = current.generation;
+    const recorder = new AudioRecorder(sessionId, epoch);
+    current.recorder = recorder;
+    const ownsCapture = () => runtime.current === current && current.recorder === recorder
+      && generation === current.generation;
+    const finishIfCurrent = () => { if (ownsCapture()) void finishRecording(); };
     setError(''); setNotice(''); setPhase('permission');
     try {
-      await current.recorder.startMicrophoneCapture({
-        onSilenceTimeout: () => { void finishRecording(); },
-        onBackpressureLimitReached: () => { void finishRecording(); },
+      await recorder.startMicrophoneCapture({
+        onSilenceTimeout: finishIfCurrent,
+        onBackpressureLimitReached: finishIfCurrent,
         onDeviceLost: () => {
-          stop(current); setPhase('idle'); setError('Microphone disconnected. Continue with text.');
+          if (!ownsCapture()) return;
+          stop(current); discardRecording(current);
+          setPhase('idle'); setError('Microphone disconnected. Continue with text.');
         },
       });
-      if (runtime.current === current && generation === current.generation) setPhase('recording');
-    } catch (reason) { fail(current, generation, reason); }
+      if (ownsCapture()) setPhase('recording');
+    } catch (reason) {
+      if (current.recorder === recorder) discardRecording(current);
+      fail(current, generation, reason);
+    }
   }
 
   async function listen(): Promise<void> {
@@ -203,7 +226,7 @@ function SourceVoice({ module, sessionId, epoch, workspace, messageId, onTranscr
 
   function cancel(): void {
     const current = runtime.current;
-    if (current) { stop(current); void current.recorder.dispose(); }
+    if (current) { stop(current); discardRecording(current); }
     setPhase('idle'); setProgress(0);
   }
   const busy = phase !== 'idle';

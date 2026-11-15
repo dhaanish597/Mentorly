@@ -107,6 +107,7 @@ export interface WorkbenchSessionState {
     pointedLine: number | null;
     pointedEventId: number | null;
     sourceMode: string;
+    modelStatus?: string;
     stale: boolean;
   }>;
   readonly speechDegradation: SpeechDegradationStatus;

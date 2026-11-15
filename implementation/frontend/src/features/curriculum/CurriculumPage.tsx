@@ -1,6 +1,6 @@
 import { Icon } from '../../components/HorizonVisuals';
 import type { LearningCatalog, LearningProgress } from '../../services/learningApi';
-import { allLessons, lessonUrl, missingPrerequisites, prerequisiteMessage } from './curriculum';
+import { allLessons, lessonUrl, missingPrerequisites, moduleLabel, prerequisiteMessage } from './curriculum';
 import { useLearningData } from './useLearningData';
 
 export function LearningNotice({ loading, error, onRetry, politeError = false }: { loading: boolean; error: string | null; onRetry: () => void; politeError?: boolean }) {
@@ -22,13 +22,13 @@ function Curriculum({ catalog, progress }: { catalog: LearningCatalog; progress:
   const modules = [...new Set(catalog.tracks.map(track => track.module))];
   return <div className="learning-layout">
     <aside className="learning-outline"><p className="learning-eyebrow">Your route forward</p><p>{completed} of {lessons.length} lessons completed</p>
-      <nav aria-label="Curriculum modules">{modules.map((module, index) => <a key={module} href={`#module-${index}`}><span>{String(index + 1).padStart(2, '0')}</span>{module}</a>)}</nav>
+      <nav aria-label="Curriculum modules">{modules.map((module, index) => <a key={module} href={`#module-${index}`}><span>{String(index + 1).padStart(2, '0')}</span>{moduleLabel(module)}</a>)}</nav>
       <a href="/paths" className="collection-action">Browse practice collections <Icon name="arrow" /></a>
     </aside>
     <div className="learning-tracks">
       {next && <section className="learning-next"><div><p className="learning-eyebrow">{completed ? 'Continue your journey' : 'Begin here'}</p><h2>{next.title}</h2><p>{next.estimated_minutes} minutes · {next.difficulty}</p></div><a href={lessonUrl(next.id)} className="product-button">{completed ? 'Continue learning' : 'Start learning'} <Icon name="arrow" /></a></section>}
       {!lessons.length && <section className="learning-empty"><h2>No lessons published yet</h2><p>The curriculum will appear here when lessons are available.</p><a href="/library">Explore practice problems</a></section>}
-      {modules.map((module, index) => <section key={module} id={`module-${index}`} className="learning-module"><p className="learning-eyebrow">Module {index + 1} · {module}</p>
+      {modules.map((module, index) => <section key={module} id={`module-${index}`} className="learning-module"><p className="learning-eyebrow">Module {index + 1} · {moduleLabel(module)}</p>
         {catalog.tracks.filter(track => track.module === module).map(track => <article className="learning-track" key={track.id}><header><h2>{track.title}</h2><p>{track.description}</p></header>
           <ol className="lesson-list">{track.lessons.map(lesson => {
             const locked = missingPrerequisites(lesson, progress.completed_lesson_ids).length > 0;

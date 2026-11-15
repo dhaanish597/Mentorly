@@ -10,6 +10,16 @@ from backend.app.speech.gnani_adapter import GnaniTransportError
 from backend.app.speech.pre_tts_normalizer import to_speakable
 
 
+@pytest.mark.parametrize('operation',['STT','TTS'])
+def test_product_voice_deleted_module_usage_retains_lifetime_budget(operation):
+    gate=SpeechGatekeeper(Adapter(),max_stt_seconds_budget=1,max_tts_chars_budget=1)
+    gate._conn.execute('CREATE TABLE module_speech_deleted_totals(day TEXT PRIMARY KEY,stt_seconds REAL,tts_chars INTEGER)')
+    gate._conn.execute("INSERT INTO module_speech_deleted_totals VALUES('2000-01-01',1,1)")
+    with pytest.raises(SpeechQuotaExhaustedError):
+        gate._reserve_usage(session_id='test',turn_generation=1,operation_type=operation,est_stt_sec=1 if operation=='STT' else 0,est_tts_chars=1 if operation=='TTS' else 0)
+    gate._conn.close()
+
+
 @pytest.mark.parametrize('table',['studio_speech_usage','module_speech_usage'])
 @pytest.mark.parametrize('operation',['STT','TTS'])
 def test_product_voice_shared_global_audio_budget_is_bidirectional(table, operation):
@@ -24,8 +34,8 @@ def test_product_voice_shared_global_audio_budget_is_bidirectional(table, operat
 
 def test_product_voice_shared_module_quota_is_bidirectional():
     gate = SpeechGatekeeper(Adapter(), global_daily_call_limit=1)
-    gate._conn.execute('CREATE TABLE module_speech_usage(request_count INTEGER,status TEXT,created_at TEXT)')
-    gate._conn.execute("INSERT INTO module_speech_usage VALUES(1,'UNCERTAIN',datetime('now'))")
+    gate._conn.execute('CREATE TABLE module_speech_usage(request_count INTEGER,stt_seconds REAL,tts_chars INTEGER,status TEXT,created_at TEXT)')
+    gate._conn.execute("INSERT INTO module_speech_usage VALUES(1,0,0,'UNCERTAIN',datetime('now'))")
     with pytest.raises(SpeechQuotaExhaustedError):
         gate._reserve_usage(session_id='test',turn_generation=1,operation_type='TTS',est_tts_chars=5)
     gate._conn.close()
@@ -70,7 +80,8 @@ def test_product_voice_multisegment_ledger_counts_physical_calls():
         await gate.execute_tts(request)
         expected = len(to_speakable(request.text))
         assert gate._conn.execute('SELECT request_count FROM usage_ledger').fetchone()[0] == expected
-        assert gate.get_capacity_status().tts_requests_count == expected
+        # Existing capacity DTO counts logical utterances; ledger counts physical calls.
+        assert gate.get_capacity_status().tts_requests_count == 1
         assert gate._conn.execute('SELECT request_count FROM usage_reservations').fetchone()[0] == expected
         gate._conn.close()
     asyncio.run(scenario())

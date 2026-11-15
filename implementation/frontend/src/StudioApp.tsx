@@ -1,3 +1,4 @@
+import { FALLBACK_BRANDING } from './config/branding';
 import { useEffect, useRef, useState } from 'react';
 import { capability, readStudioTab, studioRequest, writeStudioTab, StudioError, type Graph, type Scenario, type StudioEdge, type StudioNode, type StudioSession, type Workspace } from './studioApi';
 import { RepositoryPanel } from './StudioRepository';
@@ -11,7 +12,7 @@ import './studio.css';
 
 const emptyGraph = (): Graph => ({ nodes: [], edges: [], assumptions: {} });
 const areaTabs = [{ id: 'design', label: 'System design' }, { id: 'repository', label: 'Codebase learning' }] as const;
-function StudioNav() { return <header className="studio-header"><a href="/dashboard" className="studio-brand">VIVA</a><nav aria-label="Main navigation"><a href="/dashboard">Home</a><a href="/library">Practice</a><a href="/paths">Learning paths</a><a href="/studio" aria-current="page">Design studio</a><a href="/progress">Progress</a></nav></header>; }
+function StudioNav() { return <header className="studio-header"><a href="/dashboard" className="studio-brand">{FALLBACK_BRANDING.productName}</a><nav aria-label="Main navigation"><a href="/dashboard">Home</a><a href="/library">Practice</a><a href="/paths">Learning paths</a><a href="/studio" aria-current="page">Design studio</a><a href="/progress">Progress</a></nav></header>; }
 export function StudioApp() {
   const [tab, setTab] = useState(readStudioTab);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);

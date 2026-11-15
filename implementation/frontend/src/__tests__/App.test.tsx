@@ -106,9 +106,10 @@ describe('Integrated workbench', () => {
     expect(await screen.findByRole('textbox', { name: 'Python Solution Editor' })).toHaveValue('persisted dirty repair');
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Start Practice Session' })).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Save Code Version' })).toBeEnabled();
-    expect(screen.queryByRole('textbox', { name: 'Editable Learner Transcript' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Editable Learner Transcript' })).toHaveValue('unsaved reasoning');
     openTranscript();
     expect(screen.getByRole('textbox', { name: 'Editable Learner Transcript' })).toHaveValue('unsaved reasoning');
+    expect(screen.getByText('Unsent draft')).toBeInTheDocument();
     expect(screen.queryByTestId('confirm-claim-btn')).not.toBeInTheDocument();
   });
   it('recreates playable voice resources after StrictMode cleanup', async () => {

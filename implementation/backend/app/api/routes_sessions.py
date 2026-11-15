@@ -19,6 +19,8 @@ Implements Plan §6.2 & §7 (Phases P3, P4, P5, P7):
 """
 
 from __future__ import annotations
+from backend.app.db.migrations import database_target
+from backend.app.db.repository import repository_for
 
 import ast
 import asyncio
@@ -159,17 +161,17 @@ def _selected_model_configuration(settings: Settings | None = None) -> tuple[str
 
 def _configured_coach() -> CoachEngine:
     key, model = _selected_model_configuration()
-    return CoachEngine(llm_api_key=key, llm_model=model, llm_timeout_ms=get_settings().llm_timeout_ms)
+    return CoachEngine(llm_api_key=key, llm_model=model, llm_timeout_ms=get_settings().llm_timeout_ms, settings=get_settings())
 
 
 def _configured_extractor(settings: Settings | None = None) -> ModelAssistedClaimExtractor:
     key, model = _selected_model_configuration(settings)
-    return ModelAssistedClaimExtractor(api_key=key, model=model)
+    return ModelAssistedClaimExtractor(api_key=key, model=model, settings=settings or get_settings())
 
 
 def _get_repo_and_machine() -> tuple[SQLiteRepository, CoordinatorStateMachine]:
     settings = get_settings()
-    repo = SQLiteRepository(settings.database_path)
+    repo = repository_for(database_target(settings))
     repo.initialize()
     coach = _configured_coach()
     worker = None
@@ -376,6 +378,7 @@ def submit_text_turn_route(session_id: UUID, req: TextTurnRequest) -> dict[str, 
             challenge_id=req.challenge_id,
             target_spec_version=rev.spec_version,
             known_identifiers=symbols,
+            session_id=str(session_id), revision=rev,
         )
         turn_rec, capture_attempt_id = repo.create_or_reuse_turn(
             session_id=str(session_id),
@@ -677,7 +680,7 @@ async def submit_audio_turn_route(
             raise RevisionConflictError('This capture was superseded or cancelled.')
         from starlette.concurrency import run_in_threadpool
         proposal = await run_in_threadpool(_configured_extractor().extract, result.normalized_transcript, challenge_id=cid,
-            target_spec_version=current_rev.spec_version)
+            target_spec_version=current_rev.spec_version,session_id=str(session_id),revision=current_rev)
         proposal = proposal.model_copy(update={'provider_confidence': result.provider_confidence})
         repo.update_turn(str(session_id), turn.id, state=TurnState.AWAITING_CLAIM_CONFIRMATION.value,
             raw_transcript=result.raw_transcript, normalized_transcript=result.normalized_transcript,
@@ -790,7 +793,7 @@ async def browser_speech_ws(websocket: WebSocket, session_id: UUID):
         await websocket.close(code=4403)
         return
     await websocket.accept()
-    repo = SQLiteRepository(settings.database_path)
+    repo = repository_for(database_target(settings))
     repo.initialize()
     machine = CoordinatorStateMachine(repo)
     rev = None
@@ -842,7 +845,7 @@ async def browser_speech_ws(websocket: WebSocket, session_id: UUID):
         if not current or current.latest_capture_attempt_id != attempt or current.state in ('CANCELLED','SUPERSEDED'):
             raise RevisionConflictError('Capture superseded')
         from starlette.concurrency import run_in_threadpool
-        claim = await run_in_threadpool(_configured_extractor(settings).extract, result.normalized_transcript,challenge_id=cid,target_spec_version=rev.spec_version)
+        claim = await run_in_threadpool(_configured_extractor(settings).extract, result.normalized_transcript,challenge_id=cid,target_spec_version=rev.spec_version,session_id=str(session_id),revision=rev)
         claim = claim.model_copy(update={'provider_confidence':result.provider_confidence})
         repo.update_turn(str(session_id),turn.id,state=TurnState.AWAITING_CLAIM_CONFIRMATION.value,
             raw_transcript=result.raw_transcript,normalized_transcript=result.normalized_transcript,claim_json=claim.model_dump_json(),expected_capture_attempt_id=attempt)

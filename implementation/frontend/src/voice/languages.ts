@@ -8,6 +8,21 @@ export const SPEECH_LANGUAGES = Object.freeze([
 ] as const);
 export type SpeechLocale = typeof SPEECH_LANGUAGES[number]['code'];
 export type ProductLanguageMode = SpeechLocale | 'ta-IN,en-IN' | 'hi-IN,en-IN' | 'bn-IN,en-IN';
+export const PRODUCT_LANGUAGES: readonly {code: ProductLanguageMode; label: string}[] = Object.freeze([
+  ...SPEECH_LANGUAGES, {code:'ta-IN,en-IN', label:'Tanglish'},
+  {code:'hi-IN,en-IN', label:'Hindi-English'}, {code:'bn-IN,en-IN', label:'Bengali-English'},
+]);
+export function isProductLanguageMode(value: unknown): value is ProductLanguageMode {
+  return PRODUCT_LANGUAGES.some(item => item.code === value);
+}
+export function languageModeLabel(value: string): string {
+  return PRODUCT_LANGUAGES.find(item => item.code === value)?.label ?? 'Unsupported language';
+}
+export function recognitionLocale(value: ProductLanguageMode): SpeechLocale {
+  const locale = value.split(',')[0];
+  if (!isSpeechLocale(locale)) throw new Error('Unsupported speech language.');
+  return locale;
+}
 export const TTS_VOICES = Object.freeze(['Avinash','Shivani','Lakshmi','Kalpana','Shubham','Prakash','Devansh','Yashraj','Chetana','Vasudha','Riyaa','Tarika','Harshad'] as const);
 export type TTSVoice = typeof TTS_VOICES[number];
 export const CODE_MIXING_LANGUAGES: readonly SpeechLocale[] = Object.freeze(['ta-IN','hi-IN','bn-IN']);
@@ -47,6 +62,7 @@ export interface SpeechCapabilities {
   readonly configured: boolean;
   readonly stt_model: string;
   readonly tts_model: string;
+  readonly language_modes?: readonly ProductLanguageMode[];
   readonly languages: readonly {code:SpeechLocale; label:string; documented:boolean; live_unverified:boolean; compatible_voices:readonly TTSVoice[]; code_mixing:boolean}[];
   readonly voices: readonly {id:TTSVoice; model:string; languages:readonly SpeechLocale[]; documented:boolean; live_unverified:boolean}[];
 }
@@ -58,6 +74,7 @@ function parseCapabilities(value: unknown): SpeechCapabilities {
     || typeof value.configured !== 'boolean' || value.stt_model !== 'prisma-v3.0' || value.tts_model !== 'timbre-v3.0'
     || !Array.isArray(value.languages) || !Array.isArray(value.voices)
     || !value.languages.length || !value.voices.length) throw new Error('Invalid speech capability registry.');
+  if (value.language_modes !== undefined && (!Array.isArray(value.language_modes) || !value.language_modes.length || !value.language_modes.every(isProductLanguageMode))) throw new Error('Invalid language modes.');
   for (const item of value.languages) {
     if (!isRecord(item) || !isSpeechLocale(item.code) || typeof item.label !== 'string'
       || typeof item.documented !== 'boolean' || typeof item.live_unverified !== 'boolean'

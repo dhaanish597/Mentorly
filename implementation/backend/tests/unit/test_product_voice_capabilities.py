@@ -1,6 +1,5 @@
 import asyncio
 import json
-from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -8,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from backend.app.core.config import Settings
 from backend.app.models.api_schemas import CreateSessionRequest, STTRequest, TTSRequest
 from backend.app.models.enums import LanguageMode
 from backend.app.speech.audio_utils import generate_sine_wav_bytes
@@ -70,7 +70,13 @@ def test_product_voice_optional_session_selection():
 
 def test_product_voice_registry_is_public_configuration_not_live_probe():
     app = FastAPI()
-    app.state.settings = SimpleNamespace(gnani_api_key='DO_NOT_EXPOSE', gnani_tts_model='timbre-v3.0', gnani_tts_voice='Avinash')
+    app.state.settings = Settings(
+        gnani_api_key='DO_NOT_EXPOSE',
+        groq_api_key=None,
+        database_url=None,
+        gnani_max_concurrency=8,
+        gnani_verified_concurrency=1,
+    )
     app.include_router(router, prefix='/api/v1')
     with TestClient(app) as client:
         response = client.get('/api/v1/speech/capabilities')
@@ -81,6 +87,8 @@ def test_product_voice_registry_is_public_configuration_not_live_probe():
     assert {item['id'] for item in body['voices']} == set(VOICES)
     assert all(item['documented'] and item['live_unverified'] for item in body['languages'])
     assert all(set(item['compatible_voices']) == set(VOICES) for item in body['languages'])
+    assert body['limits']['requested_concurrency'] == 8
+    assert body['limits']['effective_concurrency'] == 1
     assert 'DO_NOT_EXPOSE' not in response.text
 
 

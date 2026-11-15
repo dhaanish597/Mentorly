@@ -7,14 +7,14 @@ export interface LearningData {
   catalog: LearningCatalog | null; progress: LearningProgress | null; workspace: Workspace | null;
   loading: boolean; error: string | null;
 }
-export function useLearningData(): LearningData & { reload: () => void } {
+export function useLearningData(withCatalog = true): LearningData & { reload: () => void } {
   const [data, setData] = useState<LearningData>({ catalog: null, progress: null, workspace: null, loading: true, error: null });
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setData(current => ({ ...current, loading: true, error: null }));
     const load = async () => {
-      const catalogPromise = learningApi.getCatalog(controller.signal);
+      const catalogPromise = withCatalog ? learningApi.getCatalog(controller.signal) : Promise.resolve(null);
       const progressPromise = ensureWorkspaceSession().then(async workspace => ({ workspace, progress: await learningApi.getProgress(workspace, controller.signal) }));
       const [catalog, { workspace, progress }] = await Promise.all([catalogPromise, progressPromise]);
       if (!controller.signal.aborted) setData({ catalog, progress, workspace, loading: false, error: null });
@@ -23,6 +23,6 @@ export function useLearningData(): LearningData & { reload: () => void } {
       if (!controller.signal.aborted) setData(current => ({ ...current, loading: false, error: error instanceof Error ? error.message : 'Learning is unavailable. Please retry.' }));
     });
     return () => controller.abort();
-  }, [revision]);
+  }, [revision, withCatalog]);
   return { ...data, reload: () => setRevision(value => value + 1) };
 }

@@ -2,6 +2,8 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../services/apiClient';
+import * as languages from '../voice/languages';
+import { speechCapabilitiesFixture } from './fixtures/speechCapabilities';
 import { AudioPlayer } from '../services/audioPlayer';
 import { CoachingHintFeed, ExecutionComparisonCard, VoiceTurnPanel } from '../components/WorkbenchComponents';
 import { createInitialWorkbenchState } from '../state/useSessionStore';
@@ -32,6 +34,7 @@ async function restore(patch: Partial<api.SessionSnapshot> = {}): Promise<void> 
 async function idle(): Promise<void> { await waitFor(() => expect(screen.getByRole('button', { name: 'Play Coach Voice' })).toBeEnabled()); }
 function row(level: number) { return within(screen.getByText(new RegExp(`\\[Level ${level} —`)).closest('li')!); }
 beforeEach(() => {
+  vi.spyOn(languages, 'fetchSpeechCapabilities').mockResolvedValue(speechCapabilitiesFixture);
   localStorage.clear(); sessionStorage.clear(); history.replaceState(null, '', '/');
   localStorage.setItem('vcc-product-v1', JSON.stringify({ inputChoice: 'voice' }));
   vi.spyOn(api.apiClient, 'getHealth').mockResolvedValue({ status: 'ok', service: 'test', phase: 'test', version: 'test', custom_code_execution_enabled: false, product_name: 'Coach', product_name_status: 'TEST' });

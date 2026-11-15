@@ -19,10 +19,19 @@ import { DEFAULT_PRODUCT_STATE, draftKey, forgetTabSession, libraryUrl, loadProd
 import { getTeacherForSubject } from './config/teachers';
 import './voice-first-workspace.css';
 import { ActiveConversation, type ConversationEntry } from './components/ActiveConversation';
-import { subscribeAudioPreferences, loadSpeechPreferences } from './voice/preferences';
-import { resolveSpeechSelection } from './voice/languages';
+import { subscribeAudioPreferences, loadSpeechPreferences, saveSpeechPreferences, updateSpeechPreferences } from './voice/preferences';
+import { fetchSpeechCapabilities, isProductLanguageMode, languageModeLabel, PRODUCT_LANGUAGES, recognitionLocale, resolveSpeechSelection, type SpeechCapabilities } from './voice/languages';
+import { linkDsaSessionToWorkspace } from './state/workspaceSession';
+import { modelAvailabilityLabel } from './services/modelAvailability';
 
 const RESTORE_KEY = 'vcc-session';
+const TEST_VOICE_TEXT = 'Voice is ready. You can change the volume or continue with text.';
+// Mirrors the fixed public speech contract; never contains hidden execution evidence.
+function orientationText(title: string | undefined, purpose: 'introduction' | 'test-voice'): string {
+  if (purpose === 'test-voice') return TEST_VOICE_TEXT;
+  const publicTitle = (title || 'this coding problem').trim().slice(0, 160);
+  return `Let's explore ${publicTitle}. Before coding, how would you approach this problem? Read its contract, make a prediction, and explain your reasoning before seeing the result.`;
+}
 function coachReplayKey(state: WorkbenchSessionState, level: HintLevel): string {
   const revision = state.revision;
   return JSON.stringify([state.sessionId, state.activeArtifact?.artifact_id, revision?.session_id, revision?.exercise_id, revision?.spec_version, revision?.code_version_id, revision?.code_hash, revision?.turn_generation, level]);
@@ -38,13 +47,14 @@ export function App(): React.ReactElement {
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [captureStopped, setCaptureStopped] = useState(false);
+  const captureInterrupted = useRef(false);
   const [speaking, setSpeaking] = useState(false);
-  const [showTranscript, setShowTranscript] = useState(() => !location.pathname.startsWith('/practice/'));
+  const [showTranscript, setShowTranscript] = useState(true);
   const voiceSubmitting = useRef(false);
   const voiceUploadRequest = useRef<AbortController | null>(null);
   const pendingVoiceFlush = useRef(false);
   const queuedVoiceSegments = useRef<Uint8Array[]>([]);
-  const lastSpeechAt = useRef(0);
   const interruptedReply = useRef(false);
   const openingKey = useRef('');
   const retainedAudio = useRef<Uint8Array | null>(null);
@@ -53,7 +63,7 @@ export function App(): React.ReactElement {
   const [audioPreferences, setAudioPreferences] = useState(() => {
     const saved = loadAudioPreferences();
     try {
-      if (!localStorage.getItem('viva.audio-preferences.v1') && loadProductState().inputChoice !== 'text') return updateAudioPreferences(saved, { introductions: true, autoSpeak: true });
+      if (!localStorage.getItem('viva.audio-preferences.v1') && loadProductState().inputChoice !== 'text') return updateAudioPreferences(saved, { introductions: true });
     } catch { return saved; }
     return saved;
   });
@@ -62,50 +72,96 @@ export function App(): React.ReactElement {
   const [hasVoiceReplay, setHasVoiceReplay] = useState(false);
   const [coachReplayKeys, setCoachReplayKeys] = useState<readonly string[]>([]);
   const voiceReplayRevision = useRef<RevisionRef | null>(null);
-  const orientationCache = useRef<{ key: string; audio: ArrayBuffer; playbackId: string | null } | null>(null);
+  const orientationCache = useRef<{ key: string; audio: ArrayBuffer; playbackId: string | null; text: string } | null>(null);
   const playbackPurpose = useRef<'coach' | 'orientation' | 'replay' | null>(null);
   const [autoVoiceRequest, setAutoVoiceRequest] = useState<RevisionRef | null>(null);
   const [rms, setRms] = useState(0);
   const [micMessage, setMicMessage] = useState('Microphone setup is optional; typed input is always available.');
   const [workbench, setWorkbench] = useState(createInitialWorkbenchState);
   const [conversation, setConversation] = useState<ConversationEntry[]>([]);
+  const [conversationEntryId, setConversationEntryId] = useState('');
+  const [conversationDraft, setConversationDraft] = useState(false);
+  const [recordedFinalTranscript, setRecordedFinalTranscript] = useState(false);
+  const [hasCurrentStudentText, setHasCurrentStudentText] = useState(false);
   const [conversationSpeaker, setConversationSpeaker] = useState<'mentor' | 'student'>('mentor');
   const [mentorText, setMentorText] = useState('');
+  const [mentorFallback, setMentorFallback] = useState(false);
+  const activePlaybackCaption = useRef<{ text: string; revision: RevisionRef; source?: ConversationEntry['source']; entryId?: string } | null>(null);
+  const lastPlaybackCaption = useRef<{ text: string; revision: RevisionRef; source?: ConversationEntry['source']; entryId?: string } | null>(null);
+  const coachPlaybackCaptions = useRef<ReadonlyMap<string, string>>(new Map());
   const [audioProgress, setAudioProgress] = useState(1);
   const [product, setProduct] = useState(loadProductState);
-  useEffect(() => subscribeAudioPreferences(preferences => setAudioPreferences(previous => JSON.stringify(previous) === JSON.stringify(preferences) ? previous : preferences)), []);
+  useEffect(() => subscribeAudioPreferences(preferences => {
+    // Fence device callbacks immediately, before React publishes the new preference.
+    audioPreferencesRef.current = preferences;
+    if (!shouldRequestVoice(preferences)) effectActions.current.stopAudioPlayback();
+    if (preferences.textOnly) effectActions.current.stopSpeechCapture();
+    setAudioPreferences(previous => JSON.stringify(previous) === JSON.stringify(preferences) ? previous : preferences);
+  }), []);
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setSpeaking(player.current.isPlaying);
-      setAudioProgress(player.current.playbackProgress);
+      const caption = activePlaybackCaption.current;
+      const streaming = streamedPlayer.current;
+      const current = !!caption && sameRevision(caption.revision, latest.current.revision) && !latest.current.editorDirty;
+      const streamingActive = current && !!streaming?.isPlaying && sameRevision(streaming.revision, caption.revision);
+      const wavActive = current && player.current.isPlaying && sameRevision(player.current.currentRevision, caption.revision);
+      setSpeaking(streamingActive || wavActive);
+      setAudioProgress(streamingActive ? streaming!.playbackProgress : wavActive ? player.current.playbackProgress : 1);
     }, 80);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (!workbench.sessionId) { setConversation([]); setMentorText(''); return; }
+    setResultPane('Transcript');
+    setConversationDraft(false); setConversationEntryId('');
+    if (!workbench.sessionId) { setConversation([]); setMentorText(''); setMentorFallback(false); return; }
+    setMentorFallback(false);
     try {
       const raw: unknown = JSON.parse(sessionStorage.getItem(`viva.conversation.${workbench.sessionId}`) ?? '[]');
-      const entries = Array.isArray(raw) ? raw.filter((entry): entry is ConversationEntry => typeof entry === 'object' && entry !== null && typeof entry.id === 'string' && typeof entry.text === 'string' && entry.text.length <= 8000 && ['mentor', 'student'].includes(entry.speaker)).slice(-60) : [];
-      setConversation(entries);
-      const last = entries[entries.length - 1];
-      if (last) { setConversationSpeaker(last.speaker); if (last.speaker === 'mentor') setMentorText(last.text); }
+      const entries = Array.isArray(raw) ? [...new Map(raw.filter((entry): entry is ConversationEntry => typeof entry === 'object' && entry !== null && typeof entry.id === 'string' && entry.id.length <= 20000 && typeof entry.text === 'string' && !!entry.text.trim() && entry.text.length <= 8000 && ['mentor', 'student'].includes(entry.speaker)).map(entry => [entry.id, {
+        id: entry.id, speaker: entry.speaker, text: entry.text,
+        timestamp: typeof entry.timestamp === 'string' && Number.isFinite(Date.parse(entry.timestamp)) ? entry.timestamp : undefined,
+        source: entry.source === 'model_assisted' || entry.source === 'authored_public_contract' || entry.source === 'authored_adaptive_fallback' ? entry.source : undefined,
+      }])).values()].slice(-60) : [];
+      const restored = latest.current;
+      const savedTurn = restored.activeTurnId && restored.rawTranscript.trim() ? { id: `student-${restored.activeTurnId}-${restored.captureAttemptId}`, speaker: 'student' as const, text: restored.rawTranscript.slice(0, 8000), revision: restored.revision ?? undefined } : null;
+      const restoredEntries = savedTurn && !entries.some(entry => entry.id === savedTurn.id) ? [...entries, savedTurn].slice(-60) : entries;
+      setConversation(restoredEntries);
+      const last = restoredEntries[restoredEntries.length - 1];
+      if (last) { setConversationEntryId(last.id); setConversationSpeaker(last.speaker); if (last.speaker === 'mentor') { setMentorText(last.text); setMentorFallback(last.source === 'authored_public_contract' || last.source === 'authored_adaptive_fallback'); } }
+      if (restored.editableTranscript.trim() && restored.editableTranscript !== restored.rawTranscript) { setConversationDraft(true); setConversationSpeaker('student'); setHasCurrentStudentText(true); }
     } catch { setStorageWarning('Conversation history could not be restored on this device.'); }
   }, [workbench.sessionId]);
-  function appendConversation(entry: ConversationEntry): void {
+  function appendConversation(entry: ConversationEntry, recorded = false): void {
+    if (!entry.text.trim()) return;
+    setConversationEntryId(entry.id); setConversationDraft(false);
+    setRecordedFinalTranscript(entry.speaker === 'student' && recorded);
+    setHasCurrentStudentText(entry.speaker === 'student');
     setConversation(previous => {
-      const next = [...previous.filter(item => item.id !== entry.id), { ...entry, text: entry.text.slice(0, 8000) }].slice(-60);
+      const index = previous.findIndex(item => item.id === entry.id);
+      const existing = index >= 0 ? previous[index] : null;
+      const message = { ...entry, text: entry.text.slice(0, 8000), timestamp: existing?.timestamp ?? entry.timestamp ?? new Date().toISOString(), revision: entry.revision ?? latest.current.revision ?? undefined };
+      const next = (index >= 0 ? previous.map((item, at) => at === index ? message : item) : [...previous, message]).slice(-60);
       try { if (latest.current.sessionId) sessionStorage.setItem(`viva.conversation.${latest.current.sessionId}`, JSON.stringify(next)); }
       catch { setStorageWarning('Conversation history could not be saved on this device.'); }
       return next;
     });
     setConversationSpeaker(entry.speaker);
-    if (entry.speaker === 'mentor') setMentorText(entry.text);
+    if (entry.speaker === 'mentor') { setMentorText(entry.text); setMentorFallback(entry.source === 'authored_public_contract' || entry.source === 'authored_adaptive_fallback'); }
   }
   const productRef = useRef(product);
   const [route, setRoute] = useState(readRoute);
   const [settingsOpen, setSettingsOpen] = useState(() => {
     return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('settings') === '1';
   });
+  const [speechCapabilities, setSpeechCapabilities] = useState<SpeechCapabilities | null>(null);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const controller = new AbortController();
+    void fetchSpeechCapabilities('/api/v1', controller.signal).then(value => {
+      if (!controller.signal.aborted) setSpeechCapabilities(value);
+    }).catch(() => { if (!controller.signal.aborted) setSpeechCapabilities(null); });
+    return () => controller.abort();
+  }, [settingsOpen]);
   const closeSettings = () => {
     setSettingsOpen(false);
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('settings') === '1') {
@@ -130,7 +186,8 @@ export function App(): React.ReactElement {
     };
   }, []);
   const [mobilePane, setMobilePane] = useState('Code');
-  const [resultPane, setResultPane] = useState('Evidence');
+  const [resultPane, setResultPane] = useState('Transcript');
+  const [executionView, setExecutionView] = useState<{ sessionId: string; codeHash: string; codeVersionId: number; status: 'pending' | 'complete' | 'unavailable' | 'failed' | 'cancelled' } | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const pageFocus = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => { productRef.current = product; }, [product]);
@@ -152,6 +209,10 @@ export function App(): React.ReactElement {
     voice.current.setPreferences(audioPreferences); streamedPlayer.current?.setPreferences(audioPreferences);
     if (!saveAudioPreferences(audioPreferences)) setVoiceMessage('Audio preferences could not be saved on this device.');
     if (!shouldRequestVoice(audioPreferences)) effectActions.current.stopAudioPlayback();
+    if (audioPreferences.textOnly) {
+      effectActions.current.stopSpeechCapture();
+      setWorkbench(previous => previous.interactionMode === 'TYPED_FALLBACK' ? previous : { ...previous, interactionMode: 'TYPED_FALLBACK' });
+    }
   }, [audioPreferences]);
   const generation = useRef(0);
   const speechRequest = useRef<AbortController | null>(null);
@@ -164,8 +225,8 @@ export function App(): React.ReactElement {
   const streamedPlayer = useRef<StreamingPcmPlayer | null>(null);
   const [predictedValue, setPredictedValue] = useState('');
   const [predictionReason, setPredictionReason] = useState('');
-  const effectActions = useRef({ stopAudioPlayback, openLibrary, openProblem, stashDraft, playCoach, perform, startSession, playOrientation });
-  useLayoutEffect(() => { effectActions.current = { stopAudioPlayback, openLibrary, openProblem, stashDraft, playCoach, perform, startSession, playOrientation }; });
+  const effectActions = useRef({ stopAudioPlayback, stopSpeechCapture, openLibrary, openProblem, stashDraft, playCoach, perform, startSession, playOrientation });
+  useLayoutEffect(() => { effectActions.current = { stopAudioPlayback, stopSpeechCapture, openLibrary, openProblem, stashDraft, playCoach, perform, startSession, playOrientation }; });
 
   const operation = useRef(0);
   const errorFocus = useRef<HTMLDivElement | null>(null);
@@ -232,6 +293,7 @@ export function App(): React.ReactElement {
     try { await action(); } catch (err) {
       if (id !== operation.current || (err instanceof DOMException && err.name === 'AbortError')) return;
       fail(err);
+      setExecutionView(previous => previous?.status === 'pending' ? { ...previous, status: 'failed' } : previous);
       setWorkbench(prev => prev.learningState === 'VERIFYING' ? { ...prev, learningState: 'AWAITING_PREDICTION', activeView: 'QUEUE_DEGRADATION_RECOVERY' } : prev);
     } finally { if (id === operation.current) setBusy(false); }
   }
@@ -243,7 +305,28 @@ export function App(): React.ReactElement {
     const epoch = generation.current;
     void api.sendPlaybackAck(s.sessionId, { playback_id: ack.playback_id, revision: s.revision, playback_status: 'INTERRUPTED', played_duration_ms: ack.played_duration_ms ?? 0 }).catch(err => { if (isCurrent(epoch, s)) fail(err); });
   }
+  function bindPlaybackCaption(text: string, revision: RevisionRef, replayable = true, source?: ConversationEntry['source'], entryId?: string): void {
+    const capture = recorder.current;
+    if (capture) {
+      recorder.current = null;
+      try {
+        if (capture.capturedSamplesCount > 0) {
+          const segment = capture.drainMicrophoneCapture();
+          if (segment.speechLikeActivityDetected && !segment.lowEnergyWarning) retainedAudio.current = segment.wavBytes;
+        }
+      } catch { setMicMessage('Capture paused before playback. Record again or use text.'); }
+      liveSocket.current?.close(); liveSocket.current = null; frameWriter.current = null; socketResult.current = null;
+      void capture.dispose(); setRecording(false); setRms(0);
+    }
+    const messageId = entryId ?? `mentor-playback-${revision.turn_generation}-${text}`;
+    appendConversation({ id: messageId, speaker: 'mentor', text, source, revision });
+    const caption = { text, revision: { ...revision }, source, entryId: messageId };
+    activePlaybackCaption.current = caption;
+    if (replayable) lastPlaybackCaption.current = caption;
+    setMentorText(text); setMentorFallback(source === 'authored_public_contract' || source === 'authored_adaptive_fallback'); setConversationSpeaker('mentor'); setAudioProgress(0);
+  }
   function stopAudioPlayback(): void {
+    activePlaybackCaption.current = null;
     setSpeaking(false);
     if (speechRequestPurpose.current === 'TTS') { speechRequest.current?.abort(); speechRequest.current = null; speechRequestPurpose.current = null; }
     void streamedPlayer.current?.stop(); streamedPlayer.current = null;
@@ -251,13 +334,17 @@ export function App(): React.ReactElement {
     if (playbackPurpose.current === 'coach' && stopped.ack) acknowledgeInterruption(s, stopped.ack);
   }
   function stopSpeechCapture(): void {
+    setCaptureStopped(false);
     captureCancellation.current++;
+    voiceUploadRequest.current?.abort();
     if (speechRequestPurpose.current === 'STT') { speechRequest.current?.abort(); speechRequest.current = null; }
     liveSocket.current?.close(); liveSocket.current = null; frameWriter.current = null; socketResult.current = null;
     const capture = recorder.current; recorder.current = null; void capture?.dispose(); setRecording(false); setRms(0);
   }
   function interruptLocal(reason: string, resetBusy = true, signalServer = true): Promise<void> {
     retainedAudio.current = null; interruptedReply.current = false; voiceSubmitting.current = false; voiceUploadRequest.current = null;
+    captureInterrupted.current = false; setCaptureStopped(false);
+    setRecordedFinalTranscript(false); setHasCurrentStudentText(false);
     pendingVoiceFlush.current = false; queuedVoiceSegments.current = [];
     generation.current++;
     if (resetBusy) { operation.current++; setBusy(false); }
@@ -269,6 +356,7 @@ export function App(): React.ReactElement {
     const s = latest.current;
     if (playbackPurpose.current === 'coach' && stopped.ack) acknowledgeInterruption(s, stopped.ack);
     voice.current.clearReplay(); setCoachReplayKeys([]); setHasVoiceReplay(false);
+    activePlaybackCaption.current = null; lastPlaybackCaption.current = null; coachPlaybackCaptions.current = new Map(); setSpeaking(false);
     voiceReplayRevision.current = null; orientationCache.current = null; playbackPurpose.current = null;
     const capture = recorder.current; recorder.current = null;
     void capture?.dispose(); setRecording(false); setRms(0);
@@ -291,6 +379,7 @@ export function App(): React.ReactElement {
     const draft = preserveDraft ? productRef.current.drafts[draftKey(restored.exerciseId, restored.specVersion)] : undefined;
     const next = draft && (draft.sourceCode !== restored.sourceCode || draft.transcript !== restored.editableTranscript) ? { ...applyEditorBufferChange(restored, draft.sourceCode), editableTranscript: draft.transcript, proposedClaim: null, activeTurnId: null } : restored;
     setWorkbench(next);
+    if (next.activeVerificationReport || (!next.diagnosticHidden && next.activeArtifact)) setExecutionView({ sessionId: snapshot.session_id, codeHash: snapshot.revision.code_hash, codeVersionId: snapshot.revision.code_version_id, status: next.activeVerificationReport?.report.status === 'EXECUTION_UNAVAILABLE' ? 'unavailable' : 'complete' });
     if (next.proposedClaim?.claim_type === 'OUTPUT_PREDICTION_AND_REASON') {
       setPredictedValue(formatPrediction(next.proposedClaim.predicted_output)); setPredictionReason(next.proposedClaim.reason_summary ?? '');
     } else { setPredictedValue(''); setPredictionReason(''); }
@@ -346,6 +435,10 @@ export function App(): React.ReactElement {
     api.registerSessionToken(res.session_id, res.session_token);
     sessionStorage.setItem(RESTORE_KEY, JSON.stringify({ id: res.session_id, token: res.session_token }));
     rememberTabSession(exerciseId, specVersion, { id: res.session_id, token: res.session_token });
+    let recoveryWarning = '';
+    try { await linkDsaSessionToWorkspace(res.session_id, res.session_token); }
+    catch { recoveryWarning = 'Workspace recovery could not be linked. This practice session remains available in this tab.'; }
+    if (epoch !== generation.current) return;
     const sourceCode = settings.exerciseId === exerciseId && settings.specVersion === specVersion ? settings.sourceCode : res.starter_code;
     const next = { ...createInitialWorkbenchState(), exerciseId, specVersion, sessionId: res.session_id, sessionToken: res.session_token, revision: res.revision,
       sourceCode, persistedSourceCode: res.starter_code, editorDirty: sourceCode !== res.starter_code, editableTranscript: settings.editableTranscript, sessionState: res.state, learningState: res.learning_state,
@@ -354,6 +447,7 @@ export function App(): React.ReactElement {
     latest.current = ready;
     setWorkbench(ready);
     setPredictedValue(''); setPredictionReason('');
+    if (recoveryWarning) setVoiceMessage(recoveryWarning);
     if (shouldPlayIntroduction(audioPreferencesRef.current)) await playOrientation('introduction', ready);
   }
   function saveCode(): Promise<void> {
@@ -375,7 +469,6 @@ export function App(): React.ReactElement {
   async function submitCode(): Promise<void> {
     if (latest.current.editorDirty) { await saveCode(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
     if (latest.current.syntaxError) throw new Error(latest.current.syntaxError);
-    setResultPane('Evidence');
     await verifyRepair();
   }
   async function issueChallenge(purpose: 'DIAGNOSTIC' | 'TRANSFER'): Promise<void> {
@@ -390,7 +483,7 @@ export function App(): React.ReactElement {
       learningState: purpose === 'TRANSFER' ? 'FRESH_CASE_CHECK' : 'AWAITING_PREDICTION', activeView: purpose === 'TRANSFER' ? 'FRESH_TRANSFER_CHALLENGE' : 'PREDICT_CHALLENGE_OUTPUT' }));
     setPredictedValue(''); setPredictionReason('');
   }
-  function applyTurn(res: TurnResponse, transcript: string): void {
+  function applyTurn(res: TurnResponse, transcript: string, recorded = false): void {
     if (res.turn_generation !== undefined && res.turn_generation !== res.revision.turn_generation) throw new Error('Turn generation disagrees with its revision. Record or propose again.');
     if (!canPublishTurn(latest.current.revision, res.revision, !!latest.current.activeChallenge)) return;
     setProduct(prev => ({ ...prev, coachCollapsed: false })); setMobilePane('Coach');
@@ -398,7 +491,7 @@ export function App(): React.ReactElement {
       turnGeneration: res.revision.turn_generation, captureAttemptId: res.capture_attempt_id,
       rawTranscript: transcript, editableTranscript: transcript, activeView: 'TRANSCRIPT_CLAIM_CONFIRMATION' as const };
     latest.current = next; setWorkbench(next);
-    appendConversation({ id: `student-${res.turn_id}-${res.capture_attempt_id}`, speaker: 'student', text: transcript });
+    appendConversation({ id: `student-${res.turn_id}-${res.capture_attempt_id}`, speaker: 'student', text: transcript }, recorded);
     if (res.proposed_claim.claim_type === 'OUTPUT_PREDICTION_AND_REASON') {
       setPredictedValue(formatPrediction(res.proposed_claim.predicted_output)); setPredictionReason(res.proposed_claim.reason_summary ?? '');
     }
@@ -431,28 +524,42 @@ export function App(): React.ReactElement {
     if (!s.proposedClaim || !s.activeTurnId) throw new Error('Propose and review an interpretation before confirming.');
     const claim = confirmedInterpretation(s.proposedClaim, s.activeChallenge, predictedValue, predictionReason);
     const epoch = generation.current;
+    if (claim.claim_type === 'OUTPUT_PREDICTION_AND_REASON') beginExecution(s);
     if (claim.claim_type === 'OUTPUT_PREDICTION_AND_REASON') setWorkbench(prev => ({ ...prev, learningState: 'VERIFYING', activeView: 'ISOLATED_VERIFICATION_PROGRESS' }));
     const res = await api.confirmTurnClaim(s.sessionId, s.activeTurnId, { revision: s.revision, challenge_id: claim.challenge_id ?? undefined, capture_attempt_id: s.captureAttemptId, claim }) as unknown as ResultResponse;
     if (!isCurrent(epoch, s)) return;
+    if (claim.claim_type === 'OUTPUT_PREDICTION_AND_REASON') completeExecution(s, res);
     if (res.artifact && !res.challenge && !res.diagnostic_challenge && s.activeChallenge && res.executed !== false) {
       const snapshot = await api.restoreSession(s.sessionId);
       if (isCurrent(epoch, s)) applySnapshot(snapshot, s.sessionToken!);
     } else { const next = applyServerResult(latest.current, res); setWorkbench(next); if (res.coaching) queueAutoReply(next); }
   }
+  function beginExecution(s: WorkbenchSessionState & { sessionId: string; revision: RevisionRef }): void {
+    setExecutionView({ sessionId: s.sessionId, codeHash: s.revision.code_hash, codeVersionId: s.revision.code_version_id, status: 'pending' });
+    setResultPane('Transcript'); setMobilePane('Results');
+  }
+  function completeExecution(s: WorkbenchSessionState & { sessionId: string; revision: RevisionRef }, res: ResultResponse): void {
+    const report = res.verification_report ?? (res.artifact && 'verification_report' in res.artifact ? res.artifact.verification_report : null);
+    const evidence = res.executed !== false && !!(res.artifact || report);
+    setExecutionView({ sessionId: s.sessionId, codeHash: s.revision.code_hash, codeVersionId: s.revision.code_version_id, status: report?.status === 'EXECUTION_UNAVAILABLE' || !evidence ? 'unavailable' : 'complete' });
+    if (evidence) { setResultPane('Evidence'); setMobilePane('Results'); }
+  }
   async function verifyRepair(): Promise<void> {
     const s = requireReady(); const epoch = generation.current;
+    beginExecution(s);
     setWorkbench(prev => ({ ...prev, learningState: 'VERIFYING', activeView: 'ISOLATED_VERIFICATION_PROGRESS' }));
     const spec = exercises.find(e => e.exercise_id === s.exerciseId)?.spec_versions.find(item => item.spec_version === s.specVersion);
     const target = spec?.recommended_generated_cases ?? 100;
     const res = await api.verifyRepair(s.sessionId, { revision: s.revision, prior_artifact_id: s.priorFailureArtifactId, run_curated_suite: true, generated_cases_target: target });
-    if (isCurrent(epoch, s)) setWorkbench(prev => applyServerResult(prev, res));
+    if (isCurrent(epoch, s)) { setWorkbench(prev => applyServerResult(prev, res)); completeExecution(s, res); }
   }
   async function retryExecution(): Promise<void> {
     const s = requireReady(); if (!s.activeTurnId) throw new Error('Restore the unavailable turn before retrying execution.');
     const epoch = generation.current;
+    beginExecution(s);
     setWorkbench(prev => ({ ...prev, learningState: 'VERIFYING', activeView: 'ISOLATED_VERIFICATION_PROGRESS' }));
     const res = await api.retryExecution(s.sessionId, s.activeTurnId, { revision: s.revision });
-    if (isCurrent(epoch, s)) setWorkbench(prev => applyServerResult(prev, res));
+    if (isCurrent(epoch, s)) { setWorkbench(prev => applyServerResult(prev, res)); completeExecution(s, res); }
   }
   async function requestHint(level: HintLevel): Promise<void> {
     const s = requireReady(); if (!s.activeArtifact || s.diagnosticHidden) throw new Error('Confirm the diagnostic prediction and inspect its result first.');
@@ -466,6 +573,7 @@ export function App(): React.ReactElement {
   }
   async function cancel(): Promise<void> {
     const s = latest.current;
+    setExecutionView(previous => previous?.status === 'pending' ? { ...previous, status: 'cancelled' } : previous);
     const pending = pendingTextMutation.current?.sessionId === s.sessionId ? pendingTextMutation.current.promise : null;
     void interruptLocal('Learner cancelled turn', false, false);
     const epoch = generation.current;
@@ -480,50 +588,60 @@ export function App(): React.ReactElement {
   }
   async function bargeIn(): Promise<void> {
     stopAudioPlayback();
-    interruptedReply.current = true;
-    setVoiceMessage('Listening. Your words are kept when you interrupt.');
+    interruptedReply.current = false;
+    setVoiceMessage('Audio stopped. Your conversation remains available.');
   }
   async function speakConversation(turn: TurnResponse): Promise<void> {
-    const s = latest.current;
-    const textResponse = await fetch(`/api/v1/sessions/${s.sessionId}/conversation/text`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.sessionToken}`, 'X-Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({ revision: turn.revision, turn_id: turn.turn_id }),
-    });
-    if (!textResponse.ok) throw new Error('Your explanation is saved, but the mentor reply could not be loaded. Retry or continue editing.');
-    const reply: unknown = await textResponse.json();
-    if (typeof reply !== 'object' || reply === null || !('text' in reply) || typeof reply.text !== 'string') throw new Error('Mentor returned an invalid text response.');
-    if (latest.current.activeTurnId !== turn.turn_id || !sameRevision(latest.current.revision, turn.revision)) return;
-    appendConversation({ id: `mentor-${turn.turn_id}-${turn.capture_attempt_id}`, speaker: 'mentor', text: reply.text });
-    if (!shouldRequestVoice(audioPreferencesRef.current) || !audioPreferencesRef.current.autoSpeak) return;
+    const s = latest.current; const epoch = generation.current;
+    stopAudioPlayback();
     const controller = new AbortController();
     speechRequest.current = controller; speechRequestPurpose.current = 'TTS';
+    const current = () => !controller.signal.aborted && speechRequest.current === controller && isCurrent(epoch, s) && latest.current.activeTurnId === turn.turn_id && sameRevision(latest.current.revision, turn.revision);
+    let playing = false;
     try {
-    const response = await fetch(`/api/v1/sessions/${s.sessionId}/speech/conversation`, {
-      method: 'POST', signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.sessionToken}`, 'X-Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({ revision: turn.revision, turn_id: turn.turn_id }),
-    });
-    if (!response.ok) throw new Error('Mentor voice is unavailable. Your explanation is saved; use Transcript & text if needed.');
-    const text = response.headers.get('X-Coach-Text');
-    if (text) setVoiceMessage(decodeURIComponent(text));
-    const bytes = await response.arrayBuffer();
-    if (controller.signal.aborted || s.sessionId !== latest.current.sessionId || (recorder.current?.isRecording && Date.now() - lastSpeechAt.current < 1200)) return;
-    interruptedReply.current = false; // Speaking is driven by the actual audio player, not network completion.
-    await voice.current.play({ wavBytes: bytes, playbackId: response.headers.get('X-Playback-ID') ?? undefined,
-      sessionId: s.sessionId!, turnId: turn.turn_id, turnGeneration: turn.revision.turn_generation, revision: turn.revision,
-      onEnded: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } }, onAutoplayBlocked: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } setVoiceMessage('Tap the microphone to enable audio. Your explanation is saved.'); } }, controller.signal);
-    } catch (err) {
-      if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; setSpeaking(false); }
-      throw err;
-    }
+      const textResponse = await fetch(`/api/v1/sessions/${s.sessionId}/conversation/text`, {
+        method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.sessionToken}`, 'X-Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({ revision: turn.revision, turn_id: turn.turn_id }),
+      });
+      if (!current()) return;
+      if (!textResponse.ok) throw new Error('Your explanation is saved, but the mentor reply could not be loaded. Retry or continue editing.');
+      const reply: unknown = await textResponse.json();
+      if (!current()) return;
+      if (typeof reply !== 'object' || reply === null || !('text' in reply) || typeof reply.text !== 'string' || !reply.text.trim()) throw new Error('Mentor returned an invalid text response.');
+      const source = 'source' in reply && (reply.source === 'model_assisted' || reply.source === 'authored_public_contract' || reply.source === 'authored_adaptive_fallback') ? reply.source : undefined;
+      appendConversation({ id: `mentor-${turn.turn_id}-${turn.capture_attempt_id}`, speaker: 'mentor', text: reply.text, source });
+      if (!shouldRequestVoice(audioPreferencesRef.current) || !audioPreferencesRef.current.autoSpeak) return;
+      const response = await fetch(`/api/v1/sessions/${s.sessionId}/speech/conversation`, {
+        method: 'POST', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.sessionToken}`, 'X-Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({ revision: turn.revision, turn_id: turn.turn_id }),
+      });
+      if (!current()) return;
+      if (!response.ok) throw new Error('Mentor voice is unavailable. Your explanation is saved; use Transcript & text if needed.');
+      const headerText = response.headers.get('X-Coach-Text');
+      const spokenText = headerText ? decodeURIComponent(headerText) : reply.text;
+      const bytes = await response.arrayBuffer();
+      if (!current() || !shouldRequestVoice(audioPreferencesRef.current) || !audioPreferencesRef.current.autoSpeak) return;
+      interruptedReply.current = false;
+      bindPlaybackCaption(spokenText, turn.revision, true, source, `mentor-${turn.turn_id}-${turn.capture_attempt_id}`);
+      voiceReplayRevision.current = turn.revision; setHasVoiceReplay(true);
+      const finished = () => { if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; setSpeaking(false); } };
+      const result = await voice.current.play({ wavBytes: bytes, playbackId: response.headers.get('X-Playback-ID') ?? undefined,
+        sessionId: s.sessionId!, turnId: turn.turn_id, turnGeneration: turn.revision.turn_generation, revision: turn.revision,
+        onEnded: finished, onAutoplayBlocked: () => { if (current()) setVoiceMessage('Tap the microphone to enable audio. Your explanation is saved.'); finished(); } }, controller.signal);
+      playing = result.started;
+    } catch (err) { if (!controller.signal.aborted && current()) throw err; }
+    finally { if (!playing && speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } }
   }
-  async function finishVoiceTurn(): Promise<void> {
+  async function finishVoiceTurn(isManual = false): Promise<void> {
+    // A stale recorder callback is not a new consent gesture, even for retained audio.
+    if (audioPreferencesRef.current.textOnly) return;
     if (voiceSubmitting.current) {
       pendingVoiceFlush.current = true;
       const capture = recorder.current;
       if (capture && !capture.isRecording && capture.capturedSamplesCount > 0) {
         const segment = capture.drainMicrophoneCapture();
-        if (!segment.lowEnergyWarning) queuedVoiceSegments.current = [...queuedVoiceSegments.current, segment.wavBytes];
+        if (!segment.lowEnergyWarning && segment.speechLikeActivityDetected) queuedVoiceSegments.current = [...queuedVoiceSegments.current, segment.wavBytes];
       }
       return;
     }
@@ -532,13 +650,30 @@ export function App(): React.ReactElement {
     const capture = recorder.current;
     const queued = queuedVoiceSegments.current[0];
     if (!retainedAudio.current && queued) { retainedAudio.current = queued; queuedVoiceSegments.current = queuedVoiceSegments.current.slice(1); }
-    if (!retainedAudio.current && (!capture || capture.capturedSamplesCount === 0)) return;
+    if (!retainedAudio.current && (!capture || capture.capturedSamplesCount === 0)) {
+      if (isManual) {
+        stopSpeechCapture();
+        fail(new Error('No audio was captured. Please check your microphone permissions or use typed input.'));
+      }
+      return;
+    }
     const segment = retainedAudio.current ? null : capture?.drainMicrophoneCapture();
-    if (segment?.lowEnergyWarning) return;
+    if (segment && (segment.lowEnergyWarning || !segment.speechLikeActivityDetected)) {
+      stopSpeechCapture();
+      setMicMessage('Recording ended without sustained voice-like activity. Record again or use text.');
+      if (isManual) {
+        fail(new Error('No sustained voice-like activity was detected. Try a quieter space, speak for a little longer, or continue with text.'));
+      }
+      return;
+    }
     const wav = retainedAudio.current ?? segment!.wavBytes;
-    if (wav.byteLength <= 44) return;
+    if (wav.byteLength <= 44) { stopSpeechCapture(); return; }
     retainedAudio.current = wav; voiceSubmitting.current = true;
     const epoch = generation.current;
+    // Half duplex: stop capture before recognition and mentor playback, so speaker
+    // echo and ambient sounds cannot interrupt or become another submitted turn.
+    recorder.current = null; setRecording(false); setRms(0);
+    await capture?.dispose();
     const data = new FormData();
     data.append('audio', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'reasoning.wav');
     data.append('revision', JSON.stringify(s.revision));
@@ -547,6 +682,7 @@ export function App(): React.ReactElement {
     data.append('capture_attempt_id', String(s.captureAttemptId));
     const controller = new AbortController(); voiceUploadRequest.current = controller; speechRequest.current = controller; speechRequestPurpose.current = 'STT';
     try {
+      if (audioPreferencesRef.current.textOnly || controller.signal.aborted || !isCurrent(epoch, s)) return;
       const response = await fetch(`/api/v1/sessions/${s.sessionId}/turns/audio`, { method: 'POST', signal: controller.signal,
         headers: { Authorization: `Bearer ${s.sessionToken}`, 'X-Idempotency-Key': crypto.randomUUID() }, body: data });
       if (!response.ok) {
@@ -556,18 +692,20 @@ export function App(): React.ReactElement {
       }
       let turn = await response.json() as TurnResponse;
       if (controller.signal.aborted || epoch !== generation.current || s.sessionId !== latest.current.sessionId || latest.current.editorDirty) return;
-      retainedAudio.current = null;
       let transcript = turn.normalized_transcript ?? turn.transcript ?? '';
+      if (!transcript.trim()) throw new Error('No words were recognized. Record a clearer explanation or continue with text.');
+      retainedAudio.current = null;
       // Publish each authoritative generation in order before issuing the next mutation.
-      applyTurn(turn, transcript);
+      applyTurn(turn, transcript, true);
       if (interruptedReply.current && s.editableTranscript.trim()) {
         transcript = `${s.editableTranscript} ${transcript}`;
         turn = await sendTrackedText(s.sessionId, { text: transcript, revision: turn.revision, challenge_id: s.activeChallenge?.reveal_state === 'HIDDEN' ? s.activeChallenge.challenge_id : undefined });
         if (epoch !== generation.current || s.sessionId !== latest.current.sessionId || latest.current.editorDirty) return;
-        applyTurn(turn, transcript);
+        applyTurn(turn, transcript, true);
       }
       capture?.setTurnGeneration(turn.revision.turn_generation, true);
       if (voiceUploadRequest.current === controller) { voiceSubmitting.current = false; voiceUploadRequest.current = null; }
+      if (captureInterrupted.current) return;
       if (pendingVoiceFlush.current || queuedVoiceSegments.current.length > 0) { await finishVoiceTurn(); return; }
       await speakConversation(turn);
     } catch (err) {
@@ -592,28 +730,54 @@ export function App(): React.ReactElement {
       if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; }
     }
   }
+  function handleCaptureLoss(capture: AudioRecorder, sessionId: string, captureAttempt: number): void {
+    if (recorder.current !== capture || latest.current.sessionId !== sessionId || captureCancellation.current !== captureAttempt || audioPreferencesRef.current.textOnly) return;
+    captureInterrupted.current = true; captureCancellation.current++;
+    try {
+      if (capture.capturedSamplesCount > 0) {
+        const segment = capture.drainMicrophoneCapture();
+        if (!segment.lowEnergyWarning && segment.speechLikeActivityDetected && segment.wavBytes.byteLength > 44) {
+          if (retainedAudio.current || voiceSubmitting.current) queuedVoiceSegments.current = [...queuedVoiceSegments.current, segment.wavBytes];
+          else retainedAudio.current = segment.wavBytes;
+        }
+      }
+    } catch { fail(new Error('The microphone stopped before its remaining recording could be retained. Continue with text or record again.')); }
+    recorder.current = null;
+    void capture.dispose().catch(() => fail(new Error('Microphone cleanup failed. Continue with text before recording again.')));
+    stopAudioPlayback(); setRecording(false); setRms(0); setCaptureStopped(true);
+    setWorkbench(previous => ({ ...previous, interactionMode: 'TYPED_FALLBACK' }));
+  }
   async function microphone(): Promise<void> {
+    if (voiceSubmitting.current) return;
     void voice.current.unlockAudioFromGesture();
-    if (audioPreferencesRef.current.textOnly) {
-      updateAudio({ textOnly: false, voiceOutput: true, autoSpeak: true, muted: false });
-    }
+    // This gesture grants capture/upload consent only; output choices stay untouched.
+    if (audioPreferencesRef.current.textOnly) updateAudio({ textOnly: false });
+    captureInterrupted.current = false; setCaptureStopped(false);
+    setRecordedFinalTranscript(false); setHasCurrentStudentText(false);
     const s = requireReady();
-    const captureAttempt = captureCancellation.current;
+    let captureAttempt = captureCancellation.current;
     const validCapture = () => captureCancellation.current === captureAttempt && !audioPreferencesRef.current.textOnly;
     stopAudioPlayback();
-    if (recorder.current?.isRecording && sttTransport === 'REST') { await finishVoiceTurn(); return; }
-    if (retainedAudio.current && sttTransport === 'REST') { await finishVoiceTurn(); return; }
+    if (recorder.current?.isRecording && sttTransport === 'REST') { await finishVoiceTurn(true); return; }
+    if (retainedAudio.current || queuedVoiceSegments.current.length > 0) { await finishVoiceTurn(true); return; }
     if (recorder.current?.isRecording) {
       const attemptGeneration = generation.current;
       const wav = await recorder.current.stopMicrophoneCapture();
       if (!isCurrent(attemptGeneration, s) || !validCapture()) return;
       setRecording(false);
+      if (wav.lowEnergyWarning || !wav.speechLikeActivityDetected) {
+        stopSpeechCapture();
+        throw new Error('No sustained voice-like activity was detected. Record again or continue with text.');
+      }
       if (liveSocket.current && frameWriter.current && socketResult.current) {
         frameWriter.current.finish(); liveSocket.current.send(JSON.stringify({ type: 'commit' }));
         const result = await socketResult.current;
         if (!isCurrent(attemptGeneration, s) || !validCapture()) return;
         liveSocket.current?.close(); liveSocket.current = null; frameWriter.current = null;
-        applyTurn(result, result.normalized_transcript ?? result.transcript ?? '');
+        const transcript = result.normalized_transcript ?? result.transcript ?? '';
+        if (!transcript.trim()) throw new Error('No words were recognized. Record again or continue with text.');
+        applyTurn(result, transcript, true);
+        if (route.problemId) await speakConversation(result);
         return;
       }
       const data = new FormData(); data.append('audio', new Blob([new Uint8Array(wav.wavBytes)], { type: 'audio/wav' }), 'prediction.wav');
@@ -624,9 +788,10 @@ export function App(): React.ReactElement {
       if (!response.ok) throw new Error(`Speech recognition unavailable (HTTP ${response.status}). You can type your prediction.`);
       const res = await response.json() as TurnResponse;
       if (generation.current !== attemptGeneration || latest.current.editorDirty || latest.current.sessionId !== s.sessionId || !validCapture()) return;
-      applyTurn(res, res.normalized_transcript ?? res.transcript ?? '');
+      applyTurn(res, res.normalized_transcript ?? res.transcript ?? '', true);
       return;
     }
+    captureAttempt = ++captureCancellation.current;
     generation.current++;
     const captureEpoch = generation.current;
     if (!recorder.current) recorder.current = new AudioRecorder(s.sessionId, s.turnGeneration);
@@ -660,20 +825,24 @@ export function App(): React.ReactElement {
       const capture = recorder.current;
       await capture.startMicrophoneCapture({
         onSpeechActivity: () => {
-          if (!validCapture() || latest.current.sessionId !== s.sessionId) return;
-          lastSpeechAt.current = Date.now();
-          if (voiceSubmitting.current || speechRequestPurpose.current === 'TTS') { interruptedReply.current = true; stopAudioPlayback(); }
+          if (recorder.current !== capture || !validCapture() || latest.current.sessionId !== s.sessionId) return;
+          setRecordedFinalTranscript(false); setHasCurrentStudentText(false);
         },
-        onSilenceTimeout: () => { if (validCapture() && latest.current.sessionId === s.sessionId && sttTransport === 'REST') void perform(finishVoiceTurn); },
-        onFrameTelemetry: f => { if (latest.current.sessionId !== s.sessionId || !validCapture()) return; setRms(f.rmsNormalized); try { frameWriter.current?.push(f.pcm16); } catch (err) { fail(err); liveSocket.current?.close(); void recorder.current?.dispose(); setRecording(false); } }, onDeviceLost: () => { if (!isCurrent(captureEpoch, s) || !validCapture()) return; setRecording(false); setWorkbench(prev => ({ ...prev, interactionMode: 'TYPED_FALLBACK' })); }, onBackpressureLimitReached: () => { if (sttTransport === 'REST') void perform(finishVoiceTurn); else void perform(microphone); } });
+        onSilenceTimeout: () => { if (recorder.current === capture && validCapture() && latest.current.sessionId === s.sessionId && sttTransport === 'REST') void perform(finishVoiceTurn); },
+        onFrameTelemetry: f => { if (recorder.current !== capture || latest.current.sessionId !== s.sessionId || !validCapture()) return; setRms(f.rmsNormalized); try { frameWriter.current?.push(f.pcm16); } catch (err) { fail(err); liveSocket.current?.close(); void recorder.current?.dispose(); setRecording(false); } }, onDeviceLost: () => handleCaptureLoss(capture, s.sessionId, captureAttempt), onBackpressureLimitReached: () => { if (recorder.current !== capture || !validCapture() || latest.current.sessionId !== s.sessionId) return; if (sttTransport === 'REST') void perform(finishVoiceTurn); else void perform(microphone); } });
       if (!isCurrent(captureEpoch, s) || !validCapture()) { await capture.dispose(); return; }
+      const processing = capture.processingStatus;
+      setMicMessage(`Browser microphone processing: echo cancellation ${processing.echoCancellation}; noise suppression ${processing.noiseSuppression}; automatic gain ${processing.autoGainControl}. Capture pauses during mentor playback.`);
       setRecording(true); setWorkbench(prev => ({ ...prev, micChecked: true, captureAttemptId: s.captureAttemptId + 1, interactionMode: 'VOICE', proposedClaim: null }));
     } catch (err) { if (!isCurrent(captureEpoch, s) || !validCapture()) return; liveSocket.current?.close(); frameWriter.current = null; setWorkbench(prev => ({ ...prev, interactionMode: 'TYPED_FALLBACK', activeView: 'QUEUE_DEGRADATION_RECOVERY' })); throw err; }
   }
   async function deletePractice(): Promise<void> {
     const s = latest.current;
     await cancel(); const epoch = generation.current;
-    if (s.sessionId) await api.deleteSession(s.sessionId);
+    if (s.sessionId) {
+      await api.deleteSession(s.sessionId);
+      sessionStorage.removeItem(`viva.conversation.${s.sessionId}`);
+    }
     if (epoch !== generation.current || latest.current.sessionId !== s.sessionId) return;
     stopAudioPlayback(); stopSpeechCapture(); voice.current.clearReplay();
     setAutoVoiceRequest(null); orientationCache.current = null; voiceReplayRevision.current = null; setHasVoiceReplay(false);
@@ -693,10 +862,11 @@ export function App(): React.ReactElement {
     const key = `${state.sessionId}:${state.revision.code_hash}:${purpose}`;
     const cached = orientationCache.current;
     const data = cached?.key === key ? cached : await api.requestVoiceOrientation(state.sessionId, state.revision, purpose, controller.signal);
-    if (generation.current !== epoch || controller.signal.aborted || latest.current.sessionId !== state.sessionId || !shouldRequestVoice(audioPreferencesRef.current)) return;
-    orientationCache.current = { key, ...data }; voiceReplayRevision.current = state.revision; setHasVoiceReplay(true);
-    playbackPurpose.current = 'orientation';
-    const result = await voice.current.play({ wavBytes: data.audio, playbackId: data.playbackId ?? undefined, sessionId: state.sessionId, turnId: `orientation-${purpose}`, turnGeneration: state.turnGeneration, revision: state.revision, onEnded: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } }, onAutoplayBlocked: () => { setSpeaking(false); if (speechRequest.current === controller) { speechRequest.current = null; speechRequestPurpose.current = null; } setVoiceMessage('Tap the microphone to enable audio on this browser.'); } }, controller.signal);
+    if (generation.current !== epoch || controller.signal.aborted || !sameRevision(latest.current.revision, state.revision) || latest.current.editorDirty || !shouldRequestVoice(audioPreferencesRef.current)) return;
+    const text = cached?.key === key ? cached.text : orientationText(exercises.find(exercise => exercise.exercise_id === state.exerciseId)?.title, purpose);
+    orientationCache.current = { key, ...data, text }; voiceReplayRevision.current = state.revision; setHasVoiceReplay(true);
+    playbackPurpose.current = 'orientation'; bindPlaybackCaption(text, state.revision);
+    const result = await voice.current.play({ wavBytes: data.audio, playbackId: data.playbackId ?? undefined, sessionId: state.sessionId, turnId: `orientation-${purpose}`, turnGeneration: state.turnGeneration, revision: state.revision, onEnded: () => { if (speechRequest.current === controller) { setSpeaking(false); speechRequest.current = null; speechRequestPurpose.current = null; } }, onAutoplayBlocked: () => { if (speechRequest.current === controller) { setSpeaking(false); speechRequest.current = null; speechRequestPurpose.current = null; setVoiceMessage('Tap the microphone to enable audio on this browser.'); } } }, controller.signal);
     if (!result.started) setSpeaking(false);
     setVoiceMessage(result.started ? 'Voice playing. Stop audio any time; your text stays available.' : 'Playback did not start. Read the text or use local replay.');
   }
@@ -724,8 +894,10 @@ export function App(): React.ReactElement {
     if (next.textOnly) setWorkbench(prev => ({ ...prev, interactionMode: 'TYPED_FALLBACK' }));
   }
   async function replayVoice(): Promise<void> {
-    if (!sameRevision(voiceReplayRevision.current, latest.current.revision) || latest.current.editorDirty || !shouldRequestVoice(audioPreferencesRef.current)) return;
+    const caption = lastPlaybackCaption.current;
+    if (!caption || !sameRevision(caption.revision, latest.current.revision) || !sameRevision(voiceReplayRevision.current, latest.current.revision) || latest.current.editorDirty || !shouldRequestVoice(audioPreferencesRef.current)) return;
     stopAudioPlayback(); playbackPurpose.current = 'replay';
+    bindPlaybackCaption(caption.text, caption.revision, true, caption.source, caption.entryId);
     const controller = new AbortController(); speechRequest.current?.abort(); speechRequest.current = controller; speechRequestPurpose.current = 'TTS';
     const s = latest.current; const epoch = generation.current;
     try { await voice.current.replay(controller.signal); }
@@ -737,6 +909,7 @@ export function App(): React.ReactElement {
     const level = hintLevel ?? s.currentHintLevel;
     if (!s.coachingHistory.some(item => !item.stale && item.hintLevel === level)) throw new Error('This coaching message is not unlocked for the active result.');
     const key = coachReplayKey(s, level);
+    const text = coachPlaybackCaptions.current.get(key) ?? s.coachingHistory.find(item => !item.stale && item.hintLevel === level)!.displayText;
     const requestGeneration = generation.current;
     stopAudioPlayback();
     playbackPurpose.current = 'coach';
@@ -745,6 +918,7 @@ export function App(): React.ReactElement {
       if (!isCurrent(requestGeneration, s) || latest.current.activeArtifact?.artifact_id !== s.activeArtifact.artifact_id) return;
       playbackPurpose.current = 'replay';
       voiceReplayRevision.current = s.revision; setHasVoiceReplay(true);
+      bindPlaybackCaption(text, s.revision);
       try { await voice.current.replay(controller.signal, key); }
       finally { if (isCurrent(requestGeneration, s)) setCoachReplayKeys(prev => prev.filter(cachedKey => voice.current.hasReplay(cachedKey))); }
       return;
@@ -762,6 +936,7 @@ export function App(): React.ReactElement {
     if (ttsTransport === 'STREAM') {
       await streamedPlayer.current?.stop();
       const streaming = new StreamingPcmPlayer(s.revision); streaming.setPreferences(audioPreferencesRef.current); streamedPlayer.current = streaming;
+      bindPlaybackCaption(text, s.revision, false);
       let playbackId = response.headers.get('X-Playback-ID') ?? '';
       const started = performance.now();
       try {
@@ -776,8 +951,12 @@ export function App(): React.ReactElement {
       const bytes = await response.arrayBuffer();
       if (!isCurrent(requestGeneration, s) || latest.current.activeArtifact?.artifact_id !== s.activeArtifact.artifact_id || controller.signal.aborted || !shouldRequestVoice(audioPreferencesRef.current)) return;
       voiceReplayRevision.current = s.revision; setHasVoiceReplay(true);
+      bindPlaybackCaption(text, s.revision);
       await voice.current.play({ wavBytes: bytes, playbackId: response.headers.get('X-Playback-ID') ?? undefined, sessionId: s.sessionId, turnId: s.activeTurnId, turnGeneration: s.turnGeneration, revision: s.revision, onEnded: acknowledge, onAutoplayBlocked: ack => { acknowledge(ack); if (isCurrent(requestGeneration, s)) setVoiceMessage('Playback blocked. Read the coach text or replay locally.'); } }, controller.signal, key, s.activeArtifact.artifact_id);
-      if (isCurrent(requestGeneration, s)) setCoachReplayKeys(prev => [...new Set([...prev, key])].filter(cachedKey => voice.current.hasReplay(cachedKey)));
+      if (isCurrent(requestGeneration, s)) {
+        coachPlaybackCaptions.current = new Map([...coachPlaybackCaptions.current, [key, text] as const].filter(([cachedKey]) => voice.current.hasReplay(cachedKey)));
+        setCoachReplayKeys(prev => [...new Set([...prev, key])].filter(cachedKey => voice.current.hasReplay(cachedKey)));
+      }
     }
   }
   async function checkMicrophone(): Promise<void> {
@@ -814,6 +993,8 @@ export function App(): React.ReactElement {
   }, [loading, route.problemId, workbench.exerciseId, workbench.specVersion, exercises.length]);
   const executionReadiness = health?.custom_code_execution_enabled && health.execution_status !== 'BLOCKED_EXTERNAL' && health.execution_status !== 'DISABLED' ? 'Accepted isolated runtime ready' : health?.execution_status === 'BLOCKED_EXTERNAL' ? 'Execution blocked by external isolation readiness' : health?.execution_status === 'DISABLED' ? 'Custom execution disabled' : 'Custom execution not accepted / unavailable';
   const currentExercise = exercises.find(e => e.exercise_id === workbench.exerciseId);
+  const executionVisible = !workbench.editorDirty && executionView?.sessionId === workbench.sessionId && executionView.codeHash === workbench.revision?.code_hash && executionView.codeVersionId === workbench.revision?.code_version_id;
+  const visibleResultPane = executionVisible ? resultPane : 'Transcript';
   const verification = !workbench.editorDirty && sameRevision(workbench.activeVerificationReport?.revision, workbench.revision) ? workbench.activeVerificationReport?.report ?? null : null;
   const trace = workbench.editorDirty ? null : workbench.activeTrace;
   const traceLine = trace?.steps?.[workbench.selectedTraceStepIndex]?.source_line ?? null;
@@ -831,7 +1012,7 @@ export function App(): React.ReactElement {
         <LearningStepIndicator state={workbench} />
         <div className="practice-toolbar"><p role="status" aria-live="polite">{busy ? 'Working…' : stageCopy[workbench.activeView]}{recording ? ` · Recording (${Math.round(rms * 100)}% level)` : ''}</p><div className="button-row"><span className="save-status">{workbench.editorDirty ? 'Draft · not saved to session' : workbench.sessionId ? 'Saved revision' : 'Starter code'}</span></div></div>
         <div className="mobile-pane-switch"><AccessibleTabs label="Workspace panes" controls={{ Statement: 'statement-pane', Code: 'code-pane', Coach: 'coach-pane', Results: 'results-pane' }} tabs={['Statement', 'Code', 'Coach', 'Results']} selected={mobilePane} onSelect={setMobilePane} /></div>
-        <div className={`workspace-grid ${product.coachCollapsed ? 'coach-collapsed' : ''}`} data-mobile-pane={mobilePane} style={{ '--statement-width': `${product.statementWidth}px`, '--coach-width': `${product.coachWidth}px`, '--results-height': `${product.resultsHeight}px` } as React.CSSProperties}>
+        <div className={`workspace-grid ${product.coachCollapsed ? 'coach-collapsed' : ''}`} data-mobile-pane={mobilePane} style={{ '--statement-width': `${product.statementWidth}px`, '--coach-width': `${product.coachWidth}px`, '--results-height': `${product.resultsHeight}px`, '--voice-dock-height': `${product.resultsHeight + 330}px` } as React.CSSProperties}>
           <aside id="statement-pane" className="statement-pane" aria-label="Problem statement"><ProblemConstraintPanel exercise={currentExercise} state={workbench} onSelectSpec={spec => { void openProblem(workbench.exerciseId, spec).catch(fail); }} onAcknowledgeSpec={() => { void perform(async () => { const s = requireReady(); const epoch = generation.current; await api.acknowledgeSessionSpec(s.sessionId, { spec_version: s.specVersion, revision: s.revision }); const snapshot = await api.restoreSession(s.sessionId); if (isCurrent(epoch, s)) applySnapshot(snapshot, s.sessionToken!); }); }} /></aside>
           <div className="statement-resize"><ResizeHandle label="Resize problem statement" orientation="vertical" value={product.statementWidth} min={240} max={480} defaultValue={300} onChange={statementWidth => setProduct(prev => ({ ...prev, statementWidth }))} /></div>
           <CodeWorkspace state={workbench} highlightedLine={traceLine} onChangeCode={changeCode} onSaveCode={() => { void saveCode().catch(fail); }} onSubmitCode={() => { void perform(submitCode); }} isBusy={busy} />
@@ -847,7 +1028,7 @@ export function App(): React.ReactElement {
               <div className="mentor-title-info">
                 <h3>{activeTeacher.name}</h3>
                 <p>
-                  {speaking ? 'Speaking · interrupt anytime' : recording ? (
+                  {speaking ? 'Speaking · microphone paused' : recording ? (
                     <>
                       Listening
                       <span className="sound-indicator"><span></span><span></span><span></span></span>
@@ -903,15 +1084,37 @@ export function App(): React.ReactElement {
               </div>
             )}
 
-            <ActiveConversation speaker={recording ? 'student' : conversationSpeaker} text={recording ? '' : conversationSpeaker === 'student' ? workbench.editableTranscript : mentorText || `Today's challenge is ${currentExercise?.title ?? 'your selected problem'}. What does it ask, and how would you begin?`} status={error ? 'error' : speaking ? 'playing' : recording ? 'listening' : busy ? 'thinking' : 'idle'} progress={audioProgress} history={conversation} />
-            {workbench.sessionId && showTranscript && (
+
+            <div className="mentor-input-dock">
+              <div className="voice-session-controls">
+                <button className="primary voice-turn-button" aria-label={recording ? 'Done speaking' : retainedAudio.current || queuedVoiceSegments.current.length ? 'Send retained recording' : speaking ? 'Interrupt and talk' : 'Talk to your mentor'} disabled={busy || !workbench.sessionId || workbench.saveInFlight || workbench.editorDirty || !workbench.specAcknowledged} onClick={() => { void perform(microphone); }}><Icon name={recording ? 'arrow' : 'mic'} />{recording ? 'Send Voice' : retainedAudio.current || queuedVoiceSegments.current.length ? 'Send retained recording' : speaking ? 'Interrupt & talk' : 'Talk to Astra'}</button>
+                {captureStopped && <p role="status">{retainedAudio.current || queuedVoiceSegments.current.length ? 'Microphone disconnected. Your unsent recording is retained. Send retained recording to retry, or continue with text.' : 'Microphone disconnected. Start a new recording or continue with text.'}</p>}
+                <p>{recording ? 'Sends after sustained voice activity and 10 seconds of quiet. You can send sooner.' : speaking ? 'Microphone paused during playback. Use Stop Audio or Interrupt & talk when ready.' : 'Explain your approach. Take your time to think.'}</p>
+
+              </div>
+
+            </div>
+
+
+          </aside>
+            );
+          })()}
+          <div className="results-resize"><ResizeHandle label="Resize results" orientation="horizontal" reverse value={product.resultsHeight + 330} min={450} max={730} defaultValue={520} onChange={height => setProduct(prev => ({ ...prev, resultsHeight: height - 330 }))} /></div>
+          <section id="results-pane" className="results-pane transcript-panel" aria-label="Results workspace">
+            <div className="results-heading">
+              {executionVisible ? <AccessibleTabs label="Result views" controls={{ Transcript: 'transcript-panel', Evidence: 'evidence-panel', Session: 'session-panel' }} tabs={['Transcript', 'Evidence', 'Session']} selected={visibleResultPane} onSelect={setResultPane} /> : <h2>Transcript</h2>}
+              <div className="button-row"><button type="button" onClick={() => { void bargeIn().catch(fail); }}>Stop Audio</button><button type="button" onClick={() => { void perform(cancel); }}>Cancel turn</button><button disabled={busy || !workbench.sessionId || workbench.editorDirty || workbench.saveInFlight || !workbench.specAcknowledged || !workbench.priorFailureArtifactId} onClick={() => { void perform(verifyRepair); }}>Verify Saved Repair</button>{verification?.status === 'EXECUTION_UNAVAILABLE' && <button disabled={busy || workbench.editorDirty || workbench.saveInFlight || !workbench.activeTurnId} onClick={() => { void perform(retryExecution); }}>Retry Unavailable Execution</button>}</div>
+            </div>
+            {executionVisible && executionView.status !== 'complete' && <div className="execution-request-status" role="status">{executionView.status === 'pending' ? 'Execution requested. Waiting for its result…' : executionView.status === 'failed' ? 'Execution request failed. Retry when ready.' : executionView.status === 'cancelled' ? 'Execution request cancelled.' : 'Execution is unavailable. No successful run is claimed.'}</div>}
+            <div className="transcript-content" id="transcript-panel" hidden={visibleResultPane !== 'Transcript'} role={executionVisible ? 'tabpanel' : undefined} aria-labelledby={executionVisible ? 'transcript-panel-tab' : undefined}>
+            <ActiveConversation speaker={speaking ? 'mentor' : recording ? 'student' : conversationSpeaker} text={speaking ? mentorText : recording && !hasCurrentStudentText ? '' : conversationSpeaker === 'student' ? workbench.editableTranscript : mentorText} status={error ? 'error' : speaking ? 'playing' : recording ? 'listening' : busy ? 'thinking' : 'idle'} progress={audioProgress} history={conversation} mentorName={getTeacherForSubject(currentExercise?.collection).name} mentorPortrait={getTeacherForSubject(currentExercise?.collection).avatarUrl} recordedFinalTranscript={hasCurrentStudentText && recordedFinalTranscript && !speaking} transcriptId={conversationEntryId} isDraft={conversationDraft} />
+            {mentorFallback && (speaking || (!recording && conversationSpeaker === 'mentor')) && <p className="settings-footnote" role="status">AI mentor is temporarily unavailable. This response uses guided coaching based on your explanation.</p>}
+            {workbench.sessionId && (
               <details className="mentor-chat-stream"><summary>Interpretation & grounded hints</summary>
-                <div className="mentor-bubble">
-                  <p>Hi Dhaanish. Today's challenge is <strong>"{currentExercise?.title ?? 'DSA Challenge'}"</strong>. Before any code, tell me in your own words what this is asking and how you would start. Speak or type, whichever feels natural.</p>
-                </div>
                 {workbench.editorDirty && <p className="notice">Save this revision before explaining or checking it. Previous evidence is superseded.</p>}
                 {workbench.proposedClaim && (
                   <div className="mentor-bubble confirmation-bubble" aria-label="Editable claim interpretation">
+                    {workbench.proposedClaim.model_status && <p role="status">{modelAvailabilityLabel(workbench.proposedClaim.model_status)}</p>}
                     <p>
                       <strong>Coach interpreted your approach:</strong>{' '}
                       {workbench.proposedClaim.claim_type === 'OUTPUT_PREDICTION_AND_REASON'
@@ -945,18 +1148,14 @@ export function App(): React.ReactElement {
               </details>
             )}
 
-            <div className="mentor-input-dock">
-              <div className="voice-session-controls">
-                <button className="primary voice-turn-button" aria-label={recording ? 'Done speaking' : speaking ? 'Interrupt and talk' : 'Talk to your mentor'} disabled={!workbench.sessionId || workbench.saveInFlight || workbench.editorDirty || !workbench.specAcknowledged} onClick={() => { chooseInput('voice'); void perform(microphone); }}><Icon name={recording ? 'arrow' : 'mic'} />{recording ? 'Send voice' : speaking ? 'Interrupt & talk' : 'Talk to Astra'}</button>
-                <p>{recording ? 'Sends after 10 seconds of quiet. Keep talking to continue.' : speaking ? 'You can interrupt. Your words will not be discarded.' : 'Voice first. Take your time to think.'}</p>
-                <button className="voice-text-toggle" aria-expanded={showTranscript} onClick={() => setShowTranscript(value => !value)}>{showTranscript ? 'Hide transcript & text' : 'Transcript & text'}</button>
-              </div>
+              <div className="transcript-input-dock">
+                <div className="transcript-editor-toggle"><button className="voice-text-toggle" aria-expanded={showTranscript} onClick={() => setShowTranscript(true)}>Transcript &amp; text</button>{showTranscript && <button type="button" className="voice-text-toggle" onClick={() => setShowTranscript(false)}>Hide text editor</button>}</div>
               {showTranscript && <div className="mentor-input-box">
                 <textarea
                   aria-label="Editable Learner Transcript"
                   placeholder="Explain the problem and your approach in your own words..."
                   value={workbench.editableTranscript}
-                  onChange={e => setWorkbench(prev => ({ ...prev, editableTranscript: e.target.value, proposedClaim: null }))}
+                  onChange={e => { setConversationDraft(true); setRecordedFinalTranscript(false); setHasCurrentStudentText(true); setConversationSpeaker('student'); setWorkbench(prev => ({ ...prev, editableTranscript: e.target.value, proposedClaim: null })); }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -977,8 +1176,10 @@ export function App(): React.ReactElement {
                 </button>
               </div>}
               {showTranscript && !settingsOpen && <p className="mentor-dock-footer" role="status">{voiceMessage}</p>}
-            </div>
+              </div>
 
+            </div>
+            {visibleResultPane !== 'Transcript' && <div className="results-scroll" id={visibleResultPane === 'Evidence' ? 'evidence-panel' : 'session-panel'} role="tabpanel" aria-labelledby={visibleResultPane === 'Evidence' ? 'evidence-panel-tab' : 'session-panel-tab'}>{visibleResultPane === 'Evidence' ? <><ExecutionComparisonCard artifact={workbench.editorDirty ? null : workbench.activeArtifact} isStale={workbench.editorDirty} diagnosticHidden={workbench.diagnosticHidden} verificationReport={verification} /><TraceScrubberPanel trace={trace} selectedIndex={workbench.selectedTraceStepIndex} onSelectIndex={selectedTraceStepIndex => setWorkbench(prev => ({ ...prev, selectedTraceStepIndex, activeView: 'TRACE_SCRUBBER_INSPECTION' }))} />{!verification && !trace && <div className="evidence-empty"><strong>{workbench.editorDirty ? 'Your code changed. Previous results are hidden.' : workbench.diagnosticHidden ? 'The answer stays hidden until you confirm.' : 'Nothing has run yet.'}</strong><p>{workbench.editorDirty ? 'Save a revision, then explain and check it again.' : 'Choose an input, make a prediction, and review its interpretation before execution.'}</p></div>}</> : <section aria-label="Session Summary"><h2>Practice session summary</h2><p>Code version: {workbench.revision?.code_version_id ?? 'Not saved'}. {workbench.editorDirty ? 'Previous results superseded by unsaved edits.' : `Prediction: ${workbench.activeArtifact?.prediction_status ?? 'Not revealed'}. Bounded verification: ${verification?.status ?? 'Not run'}.`}</p><p>Checkpoint completion is bounded observed evidence, never proven mastery.</p></section>}{workbench.learningState === 'PRACTICE_CHECKPOINT_COMPLETED' && <section aria-label="Practice Summary"><h2>Practice checkpoint completed</h2><p>You completed a bounded practice checkpoint. Review your prediction and code verification separately.</p></section>}</div>}
             <details className="advanced-practice">
               <summary>Challenge & practice tools</summary>
               <fieldset disabled={busy || !workbench.sessionId || workbench.editorDirty || workbench.saveInFlight || !workbench.specAcknowledged}>
@@ -1003,12 +1204,6 @@ export function App(): React.ReactElement {
               {workbench.proposedClaim?.claim_type === 'OUTPUT_PREDICTION_AND_REASON' && <button type="button" disabled={busy || workbench.editorDirty} onClick={() => { void perform(confirmClaim); }}>Submit prediction & run</button>}
               <FreshCaseTransferCard state={workbench} isBusy={busy} onIssueTransferChallenge={() => { void perform(() => issueChallenge('TRANSFER')); }} />
             </details>
-          </aside>
-            );
-          })()}
-          <div className="results-resize"><ResizeHandle label="Resize results" orientation="horizontal" reverse value={product.resultsHeight} min={120} max={400} defaultValue={190} onChange={resultsHeight => setProduct(prev => ({ ...prev, resultsHeight }))} /></div>
-          <section id="results-pane" className="results-pane" aria-label="Results workspace"><div className="results-heading"><AccessibleTabs label="Result views" controls={{ Evidence: 'evidence-panel', Session: 'session-panel' }} tabs={['Evidence', 'Session']} selected={resultPane} onSelect={setResultPane} /><div className="button-row"><button onClick={() => { void perform(cancel); }}>Cancel / Stop Audio</button><button disabled={busy || !workbench.sessionId || workbench.editorDirty || workbench.saveInFlight || !workbench.specAcknowledged || !workbench.priorFailureArtifactId} onClick={() => { void perform(verifyRepair); }}>Verify Saved Repair</button>{verification?.status === 'EXECUTION_UNAVAILABLE' && <button disabled={busy || workbench.editorDirty || workbench.saveInFlight || !workbench.activeTurnId} onClick={() => { void perform(retryExecution); }}>Retry Unavailable Execution</button>}</div></div>
-            <div className="results-scroll" id={resultPane === 'Evidence' ? 'evidence-panel' : 'session-panel'} role="tabpanel" aria-labelledby={resultPane === 'Evidence' ? 'evidence-panel-tab' : 'session-panel-tab'}>{resultPane === 'Evidence' ? <><ExecutionComparisonCard artifact={workbench.editorDirty ? null : workbench.activeArtifact} isStale={workbench.editorDirty} diagnosticHidden={workbench.diagnosticHidden} verificationReport={verification} /><TraceScrubberPanel trace={trace} selectedIndex={workbench.selectedTraceStepIndex} onSelectIndex={selectedTraceStepIndex => setWorkbench(prev => ({ ...prev, selectedTraceStepIndex, activeView: 'TRACE_SCRUBBER_INSPECTION' }))} />{!verification && !trace && <div className="evidence-empty"><strong>{workbench.editorDirty ? 'Your code changed. Previous results are hidden.' : workbench.diagnosticHidden ? 'The answer stays hidden until you confirm.' : 'Nothing has run yet.'}</strong><p>{workbench.editorDirty ? 'Save a revision, then explain and check it again.' : 'Choose an input, make a prediction, and review its interpretation before execution.'}</p></div>}</> : <section aria-label="Session Summary"><h2>Practice session summary</h2><p>Code version: {workbench.revision?.code_version_id ?? 'Not saved'}. {workbench.editorDirty ? 'Previous results superseded by unsaved edits.' : `Prediction: ${workbench.activeArtifact?.prediction_status ?? 'Not revealed'}. Bounded verification: ${verification?.status ?? 'Not run'}.`}</p><p>Checkpoint completion is bounded observed evidence, never proven mastery.</p></section>}{workbench.learningState === 'PRACTICE_CHECKPOINT_COMPLETED' && <section aria-label="Practice Summary"><h2>Practice checkpoint completed</h2><p>You completed a bounded practice checkpoint. Review your prediction and code verification separately.</p></section>}</div>
           </section>
         </div>
       </>}
@@ -1035,7 +1230,14 @@ export function App(): React.ReactElement {
           />
           <span><strong>Always voice-on mode</strong> (Default to voice coach on problems without asking)</span>
         </label>
-        <label className="checkbox-label"><input type="checkbox" checked={audioPreferences.textOnly} onChange={e => chooseInput(e.target.checked ? 'text' : 'voice')} />Text-only mode (no microphone or voice requests)</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.voiceOutput} onChange={e => { if (e.target.checked) void voice.current.unlockAudioFromGesture(); updateAudio({ voiceOutput: e.target.checked }); }} />Voice output enabled</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.autoSpeak} disabled={audioPreferences.textOnly || !audioPreferences.voiceOutput} onChange={e => updateAudio({ autoSpeak: e.target.checked })} />Automatically speak new coach replies</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.muted} onChange={e => updateAudio({ muted: e.target.checked })} />Mute voice playback</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.introductions} onChange={e => updateAudio({ introductions: e.target.checked })} />Problem introductions when you start a session</label><label>Voice volume<input type="range" min="0" max="1" step="0.1" value={audioPreferences.volume} onChange={e => updateAudio({ volume: Number(e.target.value) })} /></label><label>Playback speed<select value={audioPreferences.speed} onChange={e => updateAudio({ speed: Number(e.target.value) })}>{[0.75,1,1.25,1.5,2].map(speed => <option key={speed} value={speed}>{speed}×</option>)}</select></label><p role="status">{voiceMessage}</p><div className="button-row"><button disabled={busy || !workbench.sessionId || !shouldRequestVoice(audioPreferences)} onClick={() => { void perform(() => playOrientation('test-voice')); }}>Test voice</button><button disabled={busy || !workbench.sessionId || !shouldRequestVoice(audioPreferences)} onClick={() => { void perform(() => playOrientation('introduction')); }}>Play problem introduction</button><button onClick={() => { void bargeIn().catch(fail); }}>Stop audio</button></div><label>Language for next session<select value={product.language} onChange={e => setProduct(prev => ({ ...prev, language: e.target.value as 'en-IN' | 'ta-IN,en-IN' }))}><option value="en-IN">English</option><option value="ta-IN,en-IN">Tanglish</option></select></label><p>{workbench.sessionId ? `This session uses ${workbench.languageMode === 'en-IN' ? 'English' : 'Tanglish'} for recognition and playback. Language changes apply when you start a new session.` : 'Your language choice is saved for new sessions.'}</p><p>{micMessage}</p><meter aria-label="Microphone energy" min={0} max={1} value={rms} /><div className="button-row"><button onClick={() => { chooseInput('text'); setWorkbench(prev => ({ ...prev, interactionMode: 'TYPED_FALLBACK', proposedClaim: null, activeTurnId: null })); }}>Use Typed Input</button><button disabled={busy || audioPreferences.textOnly} onClick={() => { void perform(checkMicrophone); }}>Check Microphone</button></div></section>
+        <label className="checkbox-label"><input type="checkbox" checked={audioPreferences.textOnly} onChange={e => chooseInput(e.target.checked ? 'text' : 'voice')} />Text-only mode (no microphone or voice requests)</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.voiceOutput} onChange={e => { if (e.target.checked) void voice.current.unlockAudioFromGesture(); updateAudio({ voiceOutput: e.target.checked }); }} />Voice output enabled</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.autoSpeak} disabled={audioPreferences.textOnly || !audioPreferences.voiceOutput} onChange={e => updateAudio({ autoSpeak: e.target.checked })} />Automatically speak new coach replies</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.muted} onChange={e => updateAudio({ muted: e.target.checked })} />Mute voice playback</label><label className="checkbox-label"><input type="checkbox" checked={audioPreferences.introductions} onChange={e => updateAudio({ introductions: e.target.checked })} />Problem introductions when you start a session</label><label>Voice volume<input type="range" min="0" max="1" step="0.1" value={audioPreferences.volume} onChange={e => updateAudio({ volume: Number(e.target.value) })} /></label><label>Playback speed<select value={audioPreferences.speed} onChange={e => updateAudio({ speed: Number(e.target.value) })}>{[0.75,1,1.25,1.5,2].map(speed => <option key={speed} value={speed}>{speed}×</option>)}</select></label><p role="status">{voiceMessage}</p><div className="button-row"><button disabled={busy || !workbench.sessionId || !shouldRequestVoice(audioPreferences)} onClick={() => { void perform(() => playOrientation('test-voice')); }}>Test voice</button><button disabled={busy || !workbench.sessionId || !shouldRequestVoice(audioPreferences)} onClick={() => { void perform(() => playOrientation('introduction')); }}>Play problem introduction</button><button onClick={() => { void bargeIn().catch(fail); }}>Stop audio</button></div><label>Language for next session<select value={product.language} onChange={e => {
+          const language = e.target.value;
+          if (!isProductLanguageMode(language)) return;
+          const locale = recognitionLocale(language);
+          const preferences = updateSpeechPreferences(loadSpeechPreferences(), { sttLanguage: locale, spokenLanguage: locale, codeMixing: language.includes(',') });
+          if (!saveSpeechPreferences(preferences)) { setVoiceMessage('Language preferences could not be saved. Retry before starting another session.'); return; }
+          setProduct(prev => ({ ...prev, language }));
+        }}>{PRODUCT_LANGUAGES.filter(item => !speechCapabilities?.language_modes || speechCapabilities.language_modes.includes(item.code)).map(item => <option key={item.code} value={item.code}>{item.label}</option>)}</select></label><p>{workbench.sessionId ? `This session uses ${languageModeLabel(workbench.languageMode)} for recognition. Language changes apply when you start a new session.` : 'Your language choice is saved for new sessions.'}</p><p>Languages are documented; live recognition quality is unverified. {speechCapabilities ? 'Choices follow the server capability registry.' : 'Server capabilities are unavailable; documented choices are shown.'}</p><p>{micMessage}</p><meter aria-label="Microphone energy" min={0} max={1} value={rms} /><div className="button-row"><button onClick={() => { chooseInput('text'); setWorkbench(prev => ({ ...prev, interactionMode: 'TYPED_FALLBACK', proposedClaim: null, activeTurnId: null })); }}>Use Typed Input</button><button disabled={busy || audioPreferences.textOnly} onClick={() => { void perform(checkMicrophone); }}>Check Microphone</button></div></section>
       <details className="settings-section"><summary>Technical diagnostics</summary><p data-testid="phase-status-banner">Coordinator: {health?.status ?? 'Unavailable'} · Public custom execution: {executionReadiness}</p><label>Recognition transport<select disabled={recording || busy} value={sttTransport} onChange={e => setSttTransport(e.target.value as 'REST' | 'WS')}><option value="REST">REST (recorded turn)</option><option value="WS">WebSocket (buffered turn)</option></select></label><label>Playback<select disabled={busy} value={ttsTransport} onChange={e => setTtsTransport(e.target.value as 'STREAM' | 'WAV')}><option value="STREAM">Streaming PCM</option><option value="WAV">Complete WAV fallback</option></select></label><p>Turn #{workbench.turnGeneration} / Attempt #{workbench.captureAttemptId}. Learning state: {workbench.learningState}. View: {workbench.activeView}.</p><p>Brand status: <span data-testid="branding-status-badge">{branding.productNameStatus}</span></p><button onClick={() => setWorkbench(prev => ({ ...prev, diagnosticsOpen: !prev.diagnosticsOpen }))}>Show speech diagnostics</button><DiagnosticsDrawer state={workbench} />{presets.map(p => <p key={p.preset_id}>{p.title}: {p.provenance_label}</p>)}</details>
       <section className="settings-section"><h3>Practice data</h3><p>Drafts and bookmarks are saved on this device. Session access stays in this browser tab.</p><div className="button-row"><button disabled={!workbench.sessionId || busy || workbench.editorDirty} onClick={() => { void perform(async () => { const s = requireReady(); const epoch = generation.current; const bundle = await api.exportSessionBundle(s.sessionId); if (!isCurrent(epoch, s)) return; const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'practice-session.json'; a.click(); URL.revokeObjectURL(url); }); }}>Export JSON</button><button className="danger" disabled={!workbench.sessionId || busy} onClick={() => { void perform(deletePractice); }}>Delete Session</button></div></section>
     </SettingsDialog>}

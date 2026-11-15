@@ -1,5 +1,6 @@
 """Gamification, Daily Quizzes, Live Leaderboard, Goals, Missions, and Subject Teachers API."""
 from __future__ import annotations
+from backend.app.db.migrations import database_target
 
 from datetime import date, datetime, timedelta, timezone
 import json
@@ -29,7 +30,7 @@ class QuizSubmissionRequest(BaseModel):
 
 def _get_db() -> sqlite3.Connection:
     settings = get_settings()
-    return open_connection(settings.database_path)
+    return open_connection(database_target(settings))
 
 
 def _get_today_iso() -> str:

@@ -4,14 +4,33 @@ from functools import lru_cache
 import json
 import os
 import re
+import stat
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from backend.app.core.local_config import local_development
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_BRANDING_PATH = _REPO_ROOT / "config" / "branding.json"
+
+
+def validate_env_file(value: str | Path) -> Path:
+    """Validate explicit server configuration without disclosing its contents."""
+    path = Path(value)
+    if not path.is_absolute() or path.is_symlink():
+        raise ValueError("Explicit environment file must be an absolute, non-symlink path.")
+    try:
+        metadata = path.stat()
+    except OSError as exc:
+        raise ValueError("Explicit environment file is unavailable.") from exc
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o022:
+        raise ValueError("Explicit environment file must be regular and not writable by other users.")
+    if hasattr(os, "getuid") and metadata.st_uid != os.getuid():
+        raise ValueError("Explicit environment file must belong to the current user.")
+    return path
 
 
 def validated_credential(value: str | SecretStr | None) -> str | None:
@@ -38,6 +57,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
+        hide_input_in_errors=True,
     )
 
     def __init__(self, **values):
@@ -45,9 +65,11 @@ class Settings(BaseSettings):
         # shell's account. Explicit constructor values (including None) still win.
         selected = values.get("_env_file")
         if isinstance(selected, (str, Path)):
+            selected = validate_env_file(selected)
+            values = {**values, "_env_file": selected}
             from dotenv import dotenv_values
             credentials = dotenv_values(selected, interpolate=False)
-            for field in ("gnani_api_key", "groq_api_key", "internal_worker_secret", "operations_token"):
+            for field in ("gnani_api_key", "groq_api_key", "internal_worker_secret", "operations_token", "database_url"):
                 canonical = "VCC_" + field.upper()
                 if field not in values and canonical not in values:
                     credential = credentials.get(canonical)
@@ -66,7 +88,10 @@ class Settings(BaseSettings):
 
     branding_config_path: Path = Field(default=_DEFAULT_BRANDING_PATH)
     database_path: Path = Field(default=Path("./data/vcc.db"))
-    cors_origins: str = "http://localhost:5173"
+    database_url: SecretStr | None = None
+    database_schema: str = "viva_app"
+    cloud_runtime: bool = False
+    cors_origins: str = Field(default_factory=lambda: local_development().cors_origins)
 
     allow_public_custom_code: bool = False
     isolation_acceptance_file: Path | None = None
@@ -83,7 +108,10 @@ class Settings(BaseSettings):
     gnani_tts_model: Literal["timbre-v3.0"] = "timbre-v3.0"
     gnani_tts_voice: str = "Avinash"
     gnani_stt_transport: Literal["rest", "websocket"] = "rest"
-    gnani_max_concurrency: int = Field(default=1, ge=1, le=1)
+    gnani_max_concurrency: int = Field(default=1, ge=1, le=32)
+    # This is an operator attestation after account verification, never a probe
+    # inferred from successful calls or an automatically discovered entitlement.
+    gnani_verified_concurrency: int = Field(default=1, ge=1, le=32)
 
     max_stt_seconds_per_session: int = Field(default=180, ge=1)
     max_tts_chars_per_session: int = Field(default=4000, ge=1)
@@ -104,9 +132,47 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     llm_model: str = ""
     llm_timeout_ms: int = Field(default=1200, ge=100)
+    llm_feedback_timeout_ms: int = Field(default=5000, ge=100, le=30000)
+    conversation_timeout_ms: int = Field(default=5000, ge=100, le=10000)
     model_daily_call_limit: int = Field(default=40, ge=1, le=10000)
     model_session_call_limit: int = Field(default=12, ge=1, le=1000)
     model_max_concurrency: int = Field(default=1, ge=1, le=1)
+
+    @property
+    def gnani_effective_concurrency(self) -> int:
+        return min(self.gnani_max_concurrency, self.gnani_verified_concurrency)
+
+    @field_validator('database_url', mode='before')
+    @classmethod
+    def validate_database_url(cls, value):
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if raw is None or isinstance(raw, str) and not raw.strip():
+            return None
+        try:
+            parsed = urlsplit(raw)
+            if parsed.scheme not in ('postgres','postgresql') or not parsed.hostname or parsed.fragment:
+                raise ValueError
+        except (TypeError, ValueError) as exc:
+            raise ValueError('Shared database URL must be a valid PostgreSQL URL') from exc
+        return SecretStr(raw)
+
+    @field_validator('llm_model')
+    @classmethod
+    def validate_model_identifier(cls, value: str) -> str:
+        value=value.strip()
+        if value and (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.\-/]{0,199}',value) or value.startswith(('gsk_','sk-'))):
+            raise ValueError('Model must be a provider model identifier')
+        return value
+
+    @property
+    def database_target(self):
+        """Keep credentials inside a secret-safe database target."""
+        if self.database_url is not None:
+            from backend.app.db.postgres.runtime import PostgresTarget
+            return PostgresTarget(self.database_url.get_secret_value(), schema=self.database_schema)
+        if self.cloud_runtime:
+            raise RuntimeError("Cloud deployment requires a shared PostgreSQL database.")
+        return self.database_path
 
     @field_validator("gnani_api_key", "groq_api_key", "internal_worker_secret", "operations_token", mode="before")
     @classmethod
@@ -136,8 +202,11 @@ def get_settings() -> Settings:
     """Return cached application settings."""
     # No cwd-based discovery. Only the server process's explicit opt-in loads a file.
     path = os.environ.get("VCC_ENV_FILE", "").strip()
-    if path and not Path(path).is_file():
-        raise RuntimeError("The explicitly selected server environment file is unavailable.")
+    if path:
+        try:
+            validate_env_file(path)
+        except ValueError as exc:
+            raise RuntimeError("The explicitly selected server environment file is invalid or unavailable.") from exc
     return Settings(_env_file=path or None)
 
 

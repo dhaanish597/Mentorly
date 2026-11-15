@@ -38,7 +38,7 @@ function LearningPanel({ workspace, snapshotId, onOpenSource, active = true }: R
   useEffect(() => {
     const controller = new AbortController();
     pending.current = controller;
-    studioRequest<unknown>(`/repos/${encodeURIComponent(snapshotId)}/learning-plan`, { method: 'POST', workspace, signal: controller.signal })
+    studioRequest<unknown>(`/repos/${encodeURIComponent(snapshotId)}/learning-plan`, { method: 'POST', workspace: { id: workspace.id, token: workspace.token }, signal: controller.signal })
       .then(value => { if (mounted.current && !controller.signal.aborted) setPlan(parseLearningPlan(value, snapshotId)); })
       .catch(reason => { if (mounted.current && !controller.signal.aborted) setError(message(reason)); })
       .finally(() => { if (mounted.current && !controller.signal.aborted) { pending.current = null; setBusy(false); } });

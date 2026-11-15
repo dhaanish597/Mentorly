@@ -1,4 +1,5 @@
 """Studio speech with shared bounded admission, durable quota and epoch fencing."""
+from backend.app.db.migrations import database_target
 import asyncio
 import base64
 import hashlib
@@ -50,10 +51,16 @@ async def speech_slot(req):
     """Share legacy speech's bounded queue without duplicating its usage ledger."""
     gate=req.app.state.speech.gatekeeper
     await gate._acquire_single_slot()
+    uncertain = False
     try:
         yield
+    except BaseException:
+        # Shared slots conservatively retain unknown provider completion. The
+        # owner usage ledgers independently retain billable uncertainty.
+        uncertain = True
+        raise
     finally:
-        gate._release_single_slot()
+        gate._release_single_slot(uncertain=uncertain)
 
 
 def event_text(db,session,epoch,sequence):
@@ -120,7 +127,7 @@ def reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls
     if not 8<=len(key)<=128: raise HTTPException(400,'X-Idempotency-Key required')
     settings=req.app.state.settings
     if not validated_credential(settings.gnani_api_key): raise HTTPException(503,'Cloud speech unavailable; use text')
-    with closing(open_connection(settings.database_path)) as db:
+    with closing(open_connection(database_target(settings))) as db:
         db.execute('BEGIN IMMEDIATE')
         s=auth(db,sid,authorization)
         if s['epoch']!=epoch: raise HTTPException(409,'Turn epoch conflict')
@@ -149,7 +156,7 @@ def reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls
 def settle(req,rid,status):
     if rid is None:
         return
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(database_target(req.app.state.settings))) as db:
         if status=='UNDISPATCHED':
             # No provider work occurred: remove admission, permitting a safe retry.
             db.execute("DELETE FROM studio_speech_usage WHERE id=? AND status='RESERVED'",(rid,))
@@ -158,7 +165,7 @@ def settle(req,rid,status):
 
 
 def current(req,sid,authorization,epoch):
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(database_target(req.app.state.settings))) as db:
         row=auth(db,sid,authorization)
         if row['epoch']!=epoch: raise HTTPException(409,'Speech result superseded')
 
@@ -179,8 +186,11 @@ async def run_provider(req,sid,authorization,epoch,key,operation,digest,seconds,
             rid=reserve(req,sid,authorization,epoch,key,operation,digest,seconds,chars,calls)
             check_current()
             status='UNCERTAIN'
+            req.app.state.speech.gatekeeper.mark_provider_dispatch()
             # wait_for cancels and awaits adapter cleanup before the lease releases.
-            result=await asyncio.wait_for(dispatch(),timeout=PROVIDER_DEADLINE_SECONDS)
+            from backend.app.speech.routes import _await_connected_voice
+            result=await asyncio.wait_for(_await_connected_voice(req,dispatch()),timeout=PROVIDER_DEADLINE_SECONDS)
+            req.app.state.speech.gatekeeper.mark_provider_complete()
             status='COMMITTED'
             check_current()
         return result
@@ -218,14 +228,14 @@ async def stt(req:Request,sid:str,data:STTBody,authorization:str=Header(default=
 
 @router.post('/{sid}/speech/tts')
 async def tts(req:Request,sid:str,data:TTSBody,authorization:str=Header(default=''),x_idempotency_key:str=Header(default='')):
-    with closing(open_connection(req.app.state.settings.database_path)) as db:
+    with closing(open_connection(database_target(req.app.state.settings))) as db:
         session=auth(db,sid,authorization)
         text=event_text(db,session,data.epoch,data.event_sequence)
         selection=session_tts_selection(session,model=req.app.state.settings.gnani_tts_model,
                                          default_voice=req.app.state.settings.gnani_tts_voice,
                                          language=data.language,voice=data.voice)
     def check_current():
-        with closing(open_connection(req.app.state.settings.database_path)) as db:
+        with closing(open_connection(database_target(req.app.state.settings))) as db:
             session=auth(db,sid,authorization)
             if event_text(db,session,data.epoch,data.event_sequence)!=text:
                 raise HTTPException(409,'Coach text superseded')

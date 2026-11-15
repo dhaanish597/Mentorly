@@ -293,7 +293,8 @@ class SQLiteRepository:
     """Transactional SQLite repository implementing Phase 0 through Phase 7 contracts."""
 
     def __init__(self, db_path: str | Path) -> None:
-        self._db_path = Path(db_path)
+        from backend.app.db.postgres.runtime import PostgresTarget
+        self._db_path = db_path if isinstance(db_path, PostgresTarget) else Path(db_path)
 
     @property
     def db_path(self) -> Path:
@@ -479,53 +480,17 @@ class SQLiteRepository:
         finally:
             conn.close()
 
-    def tombstone_session(
-        self, session_id: str, *, deleted_at: str | None = None
-    ) -> SessionRecord:
-        ts = deleted_at or utc_now_iso()
+    def tombstone_session(self, session_id: str, *, deleted_at: str | None = None) -> SessionRecord:
         conn = self._connect()
         try:
-            conn.execute("BEGIN IMMEDIATE;")
-            try:
-                row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                if row is None:
-                    raise SessionNotFoundError(f"Session not found: {session_id}")
-                old = conn.execute("SELECT pending_jobs_json FROM cleanup_obligations WHERE session_id=?", (session_id,)).fetchone()
-                prior_jobs = json.loads(old[0]) if old else []
-                if type(prior_jobs) is not list or any(type(job) is not str for job in prior_jobs):
-                    raise ValueError("Cleanup job identities are invalid")
-                jobs = conn.execute("SELECT id FROM jobs WHERE session_id=? AND status IN ('RUNNING','QUEUED','CANCEL_REQUESTED')", (session_id,)).fetchall()
-                pending_jobs = sorted(set(prior_jobs) | {job[0] for job in jobs})
-                conn.execute("INSERT INTO cleanup_obligations(session_id,turn_generation,audio_pending,pending_jobs_json,created_at,updated_at) VALUES (?,?,1,?,?,?) ON CONFLICT(session_id) DO UPDATE SET audio_pending=1,pending_jobs_json=excluded.pending_jobs_json,updated_at=excluded.updated_at", (session_id,row["active_turn_generation"],json.dumps(pending_jobs),ts,ts))
-                if row["deleted_at"] is None:
-                    conn.execute(
-                        """
-                        UPDATE sessions
-                        SET deleted_at = ?, state = 'DELETED', updated_at = ?
-                        WHERE id = ?;
-                        """,
-                        (ts, ts, session_id),
-                    )
-                    conn.execute(
-                        """
-                        UPDATE turns
-                        SET state = 'CANCELLED', updated_at = ?
-                        WHERE session_id = ? AND state NOT IN ('COACH_PROMPT_DELIVERED', 'SUPERSEDED', 'CANCELLED');
-                        """,
-                        (ts, session_id),
-                    )
-                for table in ("legacy_traces", "traces", "coaching_messages", "speech_jobs", "artifacts", "evidence_artifacts", "capture_attempts", "turns", "challenges", "case_history", "jobs", "code_versions", "session_events", "idempotency_records"):
-                    conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
-                row = conn.execute(
-                    "SELECT * FROM sessions WHERE id = ?",
-                    (session_id,),
-                ).fetchone()
-                conn.execute("COMMIT;")
-                assert row is not None
-                return _row_to_session(row)
-            except Exception:
-                conn.execute("ROLLBACK;")
-                raise
+            conn.execute("BEGIN IMMEDIATE")
+            result = tombstone_session_in_connection(conn, session_id, deleted_at)
+            conn.commit()
+            return result
+        except Exception:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
         finally:
             conn.close()
 
@@ -1981,3 +1946,57 @@ class SQLiteRepository:
             raise
         finally:
             conn.close()
+
+def tombstone_session_in_connection(conn, session_id: str, ts: str | None = None) -> SessionRecord:
+    """Purge a session inside caller-owned atomic UOW, retaining cleanup obligations."""
+    ts = ts or utc_now_iso()
+    row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if row is None:
+        raise SessionNotFoundError(f"Session not found: {session_id}")
+    old = conn.execute("SELECT pending_jobs_json FROM cleanup_obligations WHERE session_id=?", (session_id,)).fetchone()
+    prior_jobs = json.loads(old[0]) if old else []
+    if type(prior_jobs) is not list or any(type(job) is not str for job in prior_jobs):
+        raise ValueError("Cleanup job identities are invalid")
+    jobs = conn.execute("SELECT id FROM jobs WHERE session_id=? AND status IN ('RUNNING','QUEUED','CANCEL_REQUESTED')", (session_id,)).fetchall()
+    pending_jobs = sorted(set(prior_jobs) | {job[0] for job in jobs})
+    conn.execute("INSERT INTO cleanup_obligations(session_id,turn_generation,audio_pending,pending_jobs_json,created_at,updated_at) VALUES (?,?,1,?,?,?) ON CONFLICT(session_id) DO UPDATE SET audio_pending=1,pending_jobs_json=excluded.pending_jobs_json,updated_at=excluded.updated_at", (session_id,row["active_turn_generation"],json.dumps(pending_jobs),ts,ts))
+    if row["deleted_at"] is None:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET deleted_at = ?, state = 'DELETED', updated_at = ?
+            WHERE id = ?;
+            """,
+            (ts, ts, session_id),
+        )
+        conn.execute(
+            """
+            UPDATE turns
+            SET state = 'CANCELLED', updated_at = ?
+            WHERE session_id = ? AND state NOT IN ('COACH_PROMPT_DELIVERED', 'SUPERSEDED', 'CANCELLED');
+            """,
+            (ts, session_id),
+        )
+    for table in ("legacy_traces", "traces", "coaching_messages", "speech_jobs", "artifacts", "evidence_artifacts", "capture_attempts", "turns", "challenges", "case_history", "jobs", "code_versions", "session_events", "idempotency_records"):
+        conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
+    row = conn.execute(
+        "SELECT * FROM sessions WHERE id = ?",
+        (session_id,),
+    ).fetchone()
+    assert row is not None
+    return _row_to_session(row)
+
+
+class PostgresRuntimeRepository(SQLiteRepository):
+    """All coordinator repository contracts over the audited PostgreSQL UOW dialect."""
+    def __init__(self, target):
+        from backend.app.db.postgres.runtime import PostgresTarget
+        if not isinstance(target, PostgresTarget):
+            raise TypeError('PostgresRuntimeRepository requires a PostgreSQL target.')
+        super().__init__(target)
+
+
+def repository_for(target):
+    """Choose complete transactional repository implementation without fallback."""
+    from backend.app.db.postgres.runtime import PostgresTarget
+    return PostgresRuntimeRepository(target) if isinstance(target, PostgresTarget) else SQLiteRepository(target)

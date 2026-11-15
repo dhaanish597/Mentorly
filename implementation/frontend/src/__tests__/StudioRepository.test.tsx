@@ -222,7 +222,7 @@ describe('voice-first learning workspace', () => {
   it('shows the real microphone for a session, one draft, and hides manual controls', async () => {
     await ready(true);
     expect(screen.getByRole('button', { name: 'Enable voice and talk' })).toBeTruthy();
-    expect(screen.getByAltText('Your VIVA mentor')).toBeTruthy();
+    expect(screen.getByAltText('Your Mentorly mentor')).toBeTruthy();
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
     expect(screen.getByLabelText('Your explanation')).toBeTruthy();
     expect(screen.queryByLabelText('Topic')).toBeNull();

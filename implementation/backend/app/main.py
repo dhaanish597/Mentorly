@@ -4,6 +4,7 @@ Mounts both:
 - `/api/v1/meta/*` (`routes_meta.router`, preserving 100% of P0 health, branding, exercises, and demo-presets contracts)
 - `/api/v1/*` (`routes_sessions.router`, providing P3–P7 sessions, CAS code updates, spec ack, challenges, turns, confirm-claim, hints, playback-ack, cancel, traces, export, delete, and capacity endpoints)
 """
+from backend.app.db.migrations import database_target
 
 from contextlib import asynccontextmanager, closing
 from typing import AsyncIterator
@@ -43,22 +44,27 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
             },
         )
         from backend.app.speech.service import SpeechService
-        from backend.app.db.repository import SQLiteRepository
+        from backend.app.db.repository import repository_for
         from backend.app.operations.retention import RetentionService
         from backend.app.orchestration.worker_client import WorkerClient
-        repository = SQLiteRepository(active_settings.database_path)
+        from backend.app.db.postgres.runtime import PostgresTarget
+        selected_database = database_target(active_settings)
+        is_postgres = isinstance(selected_database, PostgresTarget)
+        repository = repository_for(selected_database)
         repository.initialize()
-        from backend.app.repo_learning.service import recover_incomplete
-        recover_incomplete(active_settings.database_path)
-        from backend.app.db.migrations import open_connection
-        with closing(open_connection(active_settings.database_path)) as db:
-            db.execute('BEGIN IMMEDIATE')
-            db.execute("UPDATE studio_speech_usage SET status='UNCERTAIN' WHERE status='RESERVED'")
-            from backend.app.studio.model_budget import recover
-            recover(db)
-            db.commit()
-        _app.state.speech = SpeechService(db_path=active_settings.database_path, cache_dir=active_settings.tts_cache_dir,
-            api_key=active_settings.gnani_api_key.get_secret_value() if active_settings.gnani_api_key else None, settings=active_settings)
+        if not is_postgres:
+            from backend.app.repo_learning.service import recover_incomplete
+            recover_incomplete(selected_database)
+            from backend.app.db.migrations import open_connection
+            with closing(open_connection(selected_database)) as db:
+                db.execute('BEGIN IMMEDIATE')
+                db.execute("UPDATE studio_speech_usage SET status='UNCERTAIN' WHERE status='RESERVED'")
+                from backend.app.studio.model_budget import recover
+                recover(db)
+                db.commit()
+        _app.state.speech = SpeechService(db_path=database_target(active_settings), cache_dir=active_settings.tts_cache_dir,
+            api_key=active_settings.gnani_api_key.get_secret_value() if active_settings.gnani_api_key else None, settings=active_settings,
+            recover_usage=not is_postgres)
         cancellation_worker = None
         if active_settings.internal_worker_secret:
             cancellation_worker = WorkerClient(
@@ -71,10 +77,14 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
             interval_seconds=active_settings.retention_interval_seconds,
             batch_size=active_settings.retention_batch_size,
         )
-        _app.state.retention.start()
+        if not is_postgres:
+            _app.state.retention.start()
         from backend.app.studio.retention import StudioRetention
-        studio_retention = StudioRetention(active_settings.database_path, active_settings.retention_interval_seconds)
-        studio_retention.start()
+        studio_retention = StudioRetention(database_target(active_settings), active_settings.retention_interval_seconds)
+        if not is_postgres:
+            studio_retention.start()
+        _app.state.database_backend = 'postgresql' if is_postgres else 'sqlite'
+        _app.state.maintenance_mode = 'scheduled_fenced_job' if is_postgres else 'single_coordinator_loop'
         try:
             yield
         finally:
@@ -98,7 +108,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
         try:
             if request.url.path.rstrip('/') in {
                 '/api/v1/gamification/dashboard', '/api/v1/gamification/leaderboard',
-                '/api/v1/gamification/quiz/submit',
+                '/api/v1/gamification/quiz/submit', '/api/v1/gamification/learning-paths',
             }:
                 return JSONResponse(status_code=410, content={
                     'detail': 'Legacy personalization retired: use authenticated /api/v1/learning progress and assessments.',
@@ -135,7 +145,7 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     install_session_security(application, active_settings)
     from backend.app.operations.admission import AdmissionController, AdmissionMiddleware
     admission = AdmissionController(
-        active_settings.database_path, window_seconds=active_settings.request_window_seconds,
+        database_target(active_settings), window_seconds=active_settings.request_window_seconds,
         per_ip_limit=active_settings.per_ip_request_limit,
         per_session_limit=active_settings.per_session_request_limit,
         global_limit=active_settings.global_request_limit,
@@ -149,6 +159,8 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     register_exception_handlers(application)
     from backend.app.studio.routes import router as studio_router
     application.include_router(studio_router, prefix="/api/v1")
+    from backend.app.studio.recovery import router as recovery_router
+    application.include_router(recovery_router, prefix="/api/v1")
     from backend.app.studio.speech import router as studio_speech_router
     application.include_router(studio_speech_router, prefix="/api/v1")
     from backend.app.studio.feedback import router as studio_feedback_router
@@ -163,6 +175,10 @@ def create_app(settings: Settings | None = None, *, include_session_routes: bool
     application.include_router(interviews_router, prefix='/api/v1')
     from backend.app.learning.routes import router as learning_router
     application.include_router(learning_router, prefix='/api/v1')
+    from backend.app.learning_voice.routes import router as module_voice_router
+    application.include_router(module_voice_router, prefix='/api/v1')
+    from backend.app.learning.service import record_interview_completion
+    application.state.interview_completion_hook = record_interview_completion
     application.include_router(meta_router, prefix="/api/v1")
     from backend.app.operations.readiness import router as operations_router
     application.include_router(operations_router, prefix="/api/v1")

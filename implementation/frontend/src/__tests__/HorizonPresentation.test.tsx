@@ -8,7 +8,7 @@ describe('Horizon presentation with real VIVA destinations', () => {
   it('restores the mentor illustration and complete landing composition', () => {
     history.replaceState({}, '', '/');
     render(<ProductApp />);
-    expect(screen.getByAltText('Your VIVA mentor').getAttribute('src')).toBe('/mentor/mentor.png');
+    expect(screen.getByAltText('Your Mentorly mentor').getAttribute('src')).toBe('/mentor/mentor.png');
     expect(screen.getByRole('heading', { name: 'Three moves, every time' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Three ways to think deeper' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /Explore problems/ }).getAttribute('href')).toBe('/library');
@@ -20,7 +20,7 @@ describe('Horizon presentation with real VIVA destinations', () => {
     render(<ProductApp />);
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Design studio' }).getAttribute('href')).toBe('/studio');
-    expect(screen.getByAltText('Your VIVA mentor')).toBeTruthy();
+    expect(screen.getByAltText('Your Mentorly mentor')).toBeTruthy();
     await screen.findByText('No saved practice yet. Your work will appear here as you begin.');
   });
 });

@@ -1,5 +1,6 @@
 """Capability authentication, bounded requests, and durable mutation replay."""
 from __future__ import annotations
+from backend.app.db.migrations import database_target
 import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
@@ -30,7 +31,7 @@ def install_session_security(app, settings):
         if not match or request.method == 'OPTIONS':
             return await call_next(request)
         sid = match.group(1)
-        repo = SQLiteRepository(settings.database_path)
+        repo = SQLiteRepository(database_target(settings))
         repo.initialize()
         row = repo.get_session(sid, include_deleted=True)
         header = request.headers.get('authorization', '')

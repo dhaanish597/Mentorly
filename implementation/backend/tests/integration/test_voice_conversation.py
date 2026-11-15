@@ -312,7 +312,7 @@ def test_conversation_disconnect_cancels_synthesis_without_confirmation(conversa
         return True
 
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
-        speech=SimpleNamespace(synthesize=synthesis))), is_disconnected=disconnected)
+        settings=conversation.app.state.settings, speech=SimpleNamespace(synthesize=synthesis))), is_disconnected=disconnected)
 
     async def run():
         with pytest.raises(asyncio.CancelledError):

@@ -81,6 +81,22 @@ export class StreamingPcmPlayer {
   private epoch = 0;
   private gain: GainNode | null = null;
   private preferences: PlaybackPreferences = DEFAULT_AUDIO_PREFERENCES;
+  private readonly schedule = new WeakMap<AudioBufferSourceNode, { start: number; end: number }>();
+  private firstAudioTime: number | null = null;
+  /** Scheduled PCM counts as playing only while its audio clock is active. */
+  get isPlaying(): boolean {
+    const context = this.context;
+    return !this.stopped && context?.state === 'running' && [...this.sources].some(source => {
+      const timing = this.schedule.get(source);
+      return !!timing && context.currentTime >= timing.start && context.currentTime < timing.end;
+    });
+  }
+  /** Word-boundary estimate across received audio; never provider word timestamps. */
+  get playbackProgress(): number {
+    if (this.complete && !this.sources.size) return 1;
+    if (!this.context || this.firstAudioTime === null || this.nextTime <= this.firstAudioTime) return 0;
+    return Math.max(0, Math.min(.99, (this.context.currentTime - this.firstAudioTime) / (this.nextTime - this.firstAudioTime)));
+  }
   setPreferences(preferences: PlaybackPreferences): void {
     this.preferences = updateAudioPreferences(DEFAULT_AUDIO_PREFERENCES, preferences);
     if (this.gain) this.gain.gain.value = this.preferences.muted ? 0 : this.preferences.volume;
@@ -126,6 +142,8 @@ export class StreamingPcmPlayer {
     this.sources.add(source);
     source.onended = () => { source.disconnect(); this.sources.delete(source); if (this.complete && !this.sources.size) this.resolveEnd?.(); };
     const when = Math.max(ctx.currentTime + .03, this.nextTime); this.nextTime = when + buffer.duration / this.preferences.speed;
+    this.firstAudioTime ??= when;
+    this.schedule.set(source, { start: when, end: this.nextTime });
     source.start(when);
   }
   async finish(): Promise<void> {

@@ -172,6 +172,9 @@ class _ClaimBase(_StrictModel):
     critical_tokens: list[str] = Field(default_factory=list, max_length=64)
     provider_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     extraction_method: ExtractionMethod
+    model_status: Literal['MODEL_DISABLED', 'MODEL_NOT_CONFIGURED', 'MODEL_TIMEOUT', 'MODEL_RATE_LIMITED',
+                          'MODEL_INVALID_RESPONSE', 'MODEL_UNAVAILABLE', 'MODEL_ASSISTED',
+                          'DETERMINISTIC_FALLBACK'] = 'DETERMINISTIC_FALLBACK'
     confirmed_at: datetime | None = None
 
 

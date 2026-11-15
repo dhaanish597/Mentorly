@@ -11,7 +11,7 @@ export function MeetYourTeachers({ onSelectTeacher }: MeetYourTeachersProps) {
       <div className="section-title">
         <h2>Meet Your AI Teachers</h2>
         <span className="section-subtitle">
-          Four specialized human AI mentors dedicated to each core domain
+          Four specialized AI mentors dedicated to each core domain
         </span>
       </div>
 
@@ -22,7 +22,7 @@ export function MeetYourTeachers({ onSelectTeacher }: MeetYourTeachersProps) {
               <span className="teacher-badge-pill" style={{ borderLeft: `3px solid ${teacher.accentColor}` }}>
                 {teacher.name}
               </span>
-              <MentorPortrait teacher={teacher} eager />
+              <MentorPortrait teacher={teacher} alt={`Meet ${teacher.name} · ${teacher.subject}`} eager />
             </div>
 
             <div className="teacher-info">

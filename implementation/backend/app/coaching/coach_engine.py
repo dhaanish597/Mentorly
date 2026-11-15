@@ -2,9 +2,9 @@
 
 Implements Plan §10 / P5 & P6:
 - Supports both 100% deterministic coaching (`DeterministicCoachProvider`) and optional bounded
-  OpenAI-compatible / Groq model-assisted phrasing (`ModelAssistedCoachProvider`, timeout `<= 1200 ms`).
-- Every model-assisted output is checked by `validate_model_coaching_output`; any timeout, HTTP error,
-  missing API key, or guardrail violation seamlessly falls back to `render_deterministic_hint`.
+  Groq model-assisted phrasing under a configured bounded deadline and shared durable budget.
+- Model assistance can select only approved phrasing. Timeout, HTTP error,
+  missing configuration and invalid selection return explicit availability states with an authored fallback.
 - Converts the selected display text into Indian English speakable chunks via `to_speakable` (`pre_tts_normalizer.py`).
 """
 
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 import json
-import os
 
 import httpx
 
@@ -53,20 +52,18 @@ class CoachEngine:
         llm_endpoint: str = "https://api.groq.com/openai/v1/chat/completions",
         llm_timeout_ms: int = 1200,
         http_client: httpx.Client | None = None,
+        settings=None,
     ) -> None:
-        self._api_key = (
-            llm_api_key
-            if llm_api_key is not None
-            else os.environ.get("VCC_GROQ_API_KEY", "").strip()
-        )
-        self._model = (
-            llm_model
-            if llm_model is not None
-            else os.environ.get("VCC_LLM_MODEL", "").strip()
-        )
+        from backend.app.core.config import validated_credential
+        self._api_key = validated_credential(llm_api_key) or ''
+        self._model = llm_model or ''
+        if settings is not None:
+            self._api_key = (validated_credential(settings.groq_api_key) or '') if settings.llm_provider == 'groq' else ''
+            self._model = settings.llm_model if self._api_key else ''
         self._endpoint = llm_endpoint
-        self._timeout_sec = min(1.2, max(0.1, llm_timeout_ms / 1000.0))
+        self._timeout_sec = min(30, max(0.1, llm_timeout_ms / 1000.0))
         self._http_client = http_client
+        self.settings = settings
 
     def build_coaching_turn_response(
         self,
@@ -94,6 +91,7 @@ class CoachEngine:
         )
 
         final_prompt = det_prompt
+        model_status='MODEL_DISABLED' if self.settings and self.settings.llm_provider != 'groq' else 'MODEL_NOT_CONFIGURED'
         max_line = max(1, len(source_code.splitlines())) if source_code else 50
 
         if (
@@ -102,7 +100,7 @@ class CoachEngine:
             and not self._api_key.startswith("REPLACE_")
             and not self._model.startswith("REPLACE_")
         ):
-            model_text = self._try_model_assisted_rephrase(
+            model_text, model_status = self._try_model_assisted_rephrase(
                 det_prompt=det_prompt,
                 artifact=artifact,
                 source_code=source_code,
@@ -127,6 +125,7 @@ class CoachEngine:
             "pointed_event_id": final_prompt.pointed_event_id,
             "pointed_line": final_prompt.pointed_line,
             "source_mode": final_prompt.source_mode,
+            "model_status": model_status,
         }
 
     def _try_model_assisted_rephrase(
@@ -137,7 +136,16 @@ class CoachEngine:
         source_code: str,
         learner_utterance: str,
         max_source_line: int,
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
+        from backend.app.coaching import model_budget
+        from backend.app.coaching.model_http import post_model, ModelThreadRequired
+        from backend.app.db.repository import RevisionConflictError
+        session_id = str(artifact.revision.session_id)
+        if self.settings is None and self._http_client is None:
+            return None, 'MODEL_NOT_CONFIGURED'
+        reservation = model_budget.reserve(self.settings,session_id,'coaching_phrase',artifact.revision) if self.settings else None
+        if self.settings is not None and not reservation:
+            return None, 'MODEL_RATE_LIMITED'
         # Model assistance selects an approved phrasing rather than inventing
         # new factual assertions. Every candidate keeps the same verified fact.
         choices = [
@@ -169,31 +177,36 @@ class CoachEngine:
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+        accounting='UNDISPATCHED'
         try:
-            if self._http_client is not None:
-                resp = self._http_client.post(
-                    self._endpoint,
-                    json=payload,
-                    headers=headers,
-                    timeout=self._timeout_sec,
-                )
-            else:
-                with httpx.Client(timeout=self._timeout_sec) as client:
-                    resp = client.post(self._endpoint, json=payload, headers=headers)
+            if self.settings: model_budget.assert_current(self.settings,session_id,artifact.revision)
+            accounting='UNCERTAIN'
+            resp=post_model(self._endpoint,payload=payload,headers=headers,timeout_seconds=self._timeout_sec,client=self._http_client)
+            accounting='COMMITTED'
+            if self.settings: model_budget.assert_current(self.settings,session_id,artifact.revision)
             if resp.status_code != 200:
-                return None
+                return None, 'MODEL_RATE_LIMITED' if resp.status_code == 429 else 'MODEL_UNAVAILABLE'
             data = resp.json()
             content = data["choices"][0]["message"]["content"]
             if not isinstance(content, str) or len(content) > 128:
-                return None
+                return None, 'MODEL_INVALID_RESPONSE'
             selection = json.loads(content)
+            if not isinstance(selection, dict):
+                return None, 'MODEL_INVALID_RESPONSE'
             choice = selection.get("choice")
             if (
                 type(choice) is not int
                 or choice not in (0, 1)
                 or set(selection) != {"choice"}
             ):
-                return None
-            return choices[choice]
-        except Exception:
-            return None
+                return None, 'MODEL_INVALID_RESPONSE'
+            return choices[choice], 'MODEL_ASSISTED'
+        except RevisionConflictError: raise
+        except ModelThreadRequired:
+            accounting='UNDISPATCHED'
+            return None, 'MODEL_UNAVAILABLE'
+        except (httpx.TimeoutException, TimeoutError): return None, 'MODEL_TIMEOUT'
+        except httpx.HTTPError: return None, 'MODEL_UNAVAILABLE'
+        except (ValueError, TypeError, KeyError, IndexError): return None, 'MODEL_INVALID_RESPONSE'
+        finally:
+            if reservation: model_budget.settle(self.settings,reservation,accounting)

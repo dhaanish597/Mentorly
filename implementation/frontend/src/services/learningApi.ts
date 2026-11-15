@@ -1,6 +1,7 @@
 import { studioRequest, type Workspace } from '../studioApi';
+import { parseExplanationReview, type ExplanationReview } from './semanticReview';
 
-export interface LearningQuestion { id: string; prompt: string; options?: string[] }
+export interface LearningQuestion { id: string; prompt: string; options?: string[]; option_ids?: string[]; response_kind?: 'multiple_choice' | 'numeric' | 'boolean' | 'enumeration' }
 export interface LearningLesson {
   id: string; title: string; prerequisites: string[]; difficulty: string; estimated_minutes: number;
   objectives: string[]; explanation: string; example: string; hints: string[];
@@ -10,13 +11,13 @@ export interface LearningTrack { id: string; module: string; title: string; desc
 export interface LearningCatalog { version: string; tracks: LearningTrack[] }
 export interface LearningAchievement { id: string; title: string; earned_at: string; source_event: string }
 export interface LearningRecommendation { lesson_id: string; title: string; reason: string; url: string }
-export interface LearningActivity { id?: string; title: string; occurred_at?: string; kind?: string }
+export interface LearningActivity { id?: string; title: string; occurred_at?: string; kind?: string; session_id?: string }
 export interface LearningProgress {
   lessons_completed: number; attempts: number; topics_mastered: number; practice_sessions: number;
   interviews_completed: number; study_seconds: number; streak: number; completed_lesson_ids: string[];
   achievements: LearningAchievement[]; recommendations: LearningRecommendation[]; recent_activity: LearningActivity[];
 }
-export interface LearningFeedback { correct: boolean; message: string; hint?: string }
+export interface LearningFeedback { correct: boolean; message: string; hint?: string; explanation_review?: ExplanationReview }
 export interface LearningReport { lesson_completed: boolean; summary: string }
 export interface LearningCoachMessage { id: string; role: string; kind: string; text: string }
 export interface LearningSession {
@@ -47,12 +48,19 @@ export function learningUrl(value: unknown, fallback = '/learn'): string {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || /[\\\s]/.test(value)) return fallback;
   try {
     const url = new URL(value, 'https://viva.invalid');
-    return url.origin === 'https://viva.invalid' ? `${url.pathname}${url.search}${url.hash}` : fallback;
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    if (!href.startsWith('/') || href.startsWith('//') || /[\\\s]/.test(href)) return fallback;
+    return url.origin === 'https://viva.invalid' && new URL(href, 'https://viva.invalid').origin === 'https://viva.invalid' ? href : fallback;
   } catch { return fallback; }
 }
 function question(value: unknown): LearningQuestion {
   const raw = object(value);
-  return { id: text(raw.id), prompt: text(raw.prompt), ...(raw.options == null ? {} : { options: list(raw.options).map(option => typeof option === 'string' ? option : text(object(option).label ?? object(option).text)) }) };
+  const options = raw.options == null ? undefined : list(raw.options).map(option => typeof option === 'string' ? option : text(object(option).label ?? object(option).text));
+  const optionIds = raw.option_ids == null ? undefined : texts(raw.option_ids);
+  if (optionIds && (optionIds.length !== options?.length || new Set(optionIds).size !== optionIds.length)) throw new Error('Learning option identifiers are invalid.');
+  const kind = raw.response_kind == null ? undefined : text(raw.response_kind);
+  if (kind && !['multiple_choice', 'numeric', 'boolean', 'enumeration'].includes(kind)) throw new Error('Unsupported learning response kind.');
+  return { id: text(raw.id), prompt: text(raw.prompt), ...(options ? { options } : {}), ...(optionIds ? { option_ids: optionIds } : {}), ...(kind ? { response_kind: kind as LearningQuestion['response_kind'] } : {}) };
 }
 function lesson(value: unknown): LearningLesson {
   const raw = object(value);
@@ -62,13 +70,30 @@ export function parseLearningCatalog(value: unknown): LearningCatalog {
   const raw = object(value);
   return { version: text(raw.version), tracks: list(raw.tracks).map(value => { const track = object(value); return { id: text(track.id), module: text(track.module), title: text(track.title), description: text(track.description), lessons: list(track.lessons).map(lesson) }; }) };
 }
+const MAX_INTERVIEW_SESSION_REFERENCE_LENGTH = 200;
+/** Opaque references stay bounded and must be encoded at every URL use. */
+export function parseInterviewSessionReference(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '.' && value !== '..' && value.length > 0 && value.length <= MAX_INTERVIEW_SESSION_REFERENCE_LENGTH
+    && !/[\s\p{Cc}\p{Cf}\p{Cs}]/u.test(value) ? value : undefined;
+}
+function activity(value: unknown): LearningActivity {
+  const item = object(value);
+  const sessionId = parseInterviewSessionReference(item.session_id);
+  return {
+    id: typeof item.id === 'string' ? item.id : undefined,
+    title: text(item.title ?? item.description ?? item.event_type),
+    occurred_at: typeof item.created_at === 'string' ? item.created_at : typeof item.occurred_at === 'string' ? item.occurred_at : undefined,
+    kind: typeof item.type === 'string' ? item.type : typeof item.kind === 'string' ? item.kind : undefined,
+    ...(sessionId ? { session_id: sessionId } : {}),
+  };
+}
 export function parseLearningProgress(value: unknown): LearningProgress {
   const raw = object(value);
   return {
     lessons_completed: count(raw.lessons_completed), attempts: count(raw.attempts), topics_mastered: count(raw.topics_mastered), practice_sessions: count(raw.practice_sessions), interviews_completed: count(raw.interviews_completed), study_seconds: count(raw.study_seconds), streak: count(raw.streak), completed_lesson_ids: texts(raw.completed_lesson_ids),
     achievements: list(raw.achievements).flatMap(value => { const item = object(value); return typeof item.source_event === 'string' && item.source_event && typeof item.earned_at === 'string' && item.earned_at ? [{ id: text(item.id), title: text(item.title), earned_at: item.earned_at, source_event: item.source_event }] : []; }),
     recommendations: list(raw.recommendations).map(value => { const item = object(value); return { lesson_id: text(item.lesson_id), title: text(item.title), reason: text(item.reason), url: learningUrl(item.url) }; }),
-    recent_activity: list(raw.recent_activity).map(value => { const item = object(value); return { id: typeof item.id === 'string' ? item.id : undefined, title: text(item.title ?? item.description ?? item.event_type), occurred_at: typeof item.occurred_at === 'string' ? item.occurred_at : undefined, kind: typeof item.kind === 'string' ? item.kind : undefined }; }),
+    recent_activity: list(raw.recent_activity).map(activity),
   };
 }
 export function parseLearningSession(value: unknown): LearningSession {
@@ -80,7 +105,7 @@ export function parseLearningSession(value: unknown): LearningSession {
     coach_messages: list(raw.coach_messages).map(value => typeof value === 'string' ? value : text(object(value).text ?? object(value).message)),
     coach_message_refs: list(raw.coach_messages).flatMap(value => { if (typeof value === 'string') return []; const item = object(value); return typeof item.id === 'string' && typeof item.text === 'string' ? [{ id: item.id, text: item.text, role: typeof item.role === 'string' ? item.role : 'assistant', kind: typeof item.kind === 'string' ? item.kind : 'message' }] : []; }),
     ...(raw.hint_count == null ? {} : { hint_count: count(raw.hint_count) }),
-    ...(feedback ? { feedback: { correct: feedback.correct === true, message: text(feedback.message), ...(typeof feedback.hint === 'string' ? { hint: feedback.hint } : {}) } } : {}),
+    ...(feedback ? { feedback: { correct: feedback.correct === true, message: text(feedback.message), ...(typeof feedback.hint === 'string' ? { hint: feedback.hint } : {}), ...(feedback.explanation_review == null ? {} : { explanation_review: parseExplanationReview(feedback.explanation_review) }) } } : {}),
     ...(report ? { report: { lesson_completed: report.lesson_completed === true, summary: typeof report.summary === 'string' ? report.summary : '' } } : {}),
     ...(typeof raw.hint === 'string' ? { hint: raw.hint } : {}),
   };
@@ -91,7 +116,11 @@ export const learningApi = {
   async getProgress(workspace: Workspace, signal?: AbortSignal): Promise<LearningProgress> { return parseLearningProgress(await studioRequest('/learning/progress', { workspace, signal })); },
   async createSession(workspace: Workspace, lessonId: string, languageMode: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest('/learning/sessions', { method: 'POST', workspace, signal, body: { lesson_id: lessonId, mode: 'practice', language_mode: languageMode } })); },
   async getSession(workspace: Workspace, id: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(id)}`, { workspace, signal })); },
-  async answer(workspace: Workspace, session: LearningSession, answer: string, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/answers`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id, answer } })); },
+  async answer(workspace: Workspace, session: LearningSession, answer: string, signal?: AbortSignal, explanation?: string, allowExternal = false): Promise<LearningSession> {
+    const index = session.question.options?.indexOf(answer) ?? -1;
+    const optionId = index < 0 ? undefined : session.question.option_ids?.[index];
+    return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/answers`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id, answer, ...(optionId ? { option_id: optionId } : {}), ...(explanation?.trim() ? { explanation: explanation.trim(), allow_external: allowExternal } : {}) } }));
+  },
   async restart(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/restart`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch } })); },
-  async hint(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/hints`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch, question_id: session.question.id } })); },
+  async hint(workspace: Workspace, session: LearningSession, signal?: AbortSignal): Promise<LearningSession> { return parseLearningSession(await studioRequest(`/learning/sessions/${encodeURIComponent(session.id)}/hints`, { method: 'POST', workspace, signal, body: { expected_epoch: session.epoch } })); },
 };
