@@ -107,6 +107,12 @@ static void quoted_c(Buffer *b, const char *s, size_t limit) {
     }
     add(b, "\"");
 }
+static void unicode_escape(Buffer *b, uint16_t unit) {
+    static const char digits[] = "0123456789abcdef";
+    char escape[6] = {'\\', 'u', digits[(unit >> 12) & 15], digits[(unit >> 8) & 15],
+                      digits[(unit >> 4) & 15], digits[unit & 15]};
+    addn(b, escape, sizeof escape);
+}
 static int quoted_py(Buffer *b, PyObject *s, Py_ssize_t limit) {
     if (!PyUnicode_CheckExact(s) || PyUnicode_GET_LENGTH(s) > limit) return 0;
     add(b, "\"");
@@ -115,8 +121,15 @@ static int quoted_py(Buffer *b, PyObject *s, Py_ssize_t limit) {
         if (c == (Py_UCS4)-1 && PyErr_Occurred()) return 0;
         if (c == '"' || c == '\\') { char e[2] = {'\\', (char)c}; addn(b, e, 2); }
         else if (c >= 32 && c < 127) { char v = (char)c; addn(b, &v, 1); }
-        else if (c <= 0xffff) { char e[7]; snprintf(e, sizeof e, "\\u%04x", (unsigned)c); add(b, e); }
-        else { char e[13]; c -= 0x10000; snprintf(e, sizeof e, "\\u%04x\\u%04x", (unsigned)(0xd800 + (c >> 10)), (unsigned)(0xdc00 + (c & 1023))); add(b, e); }
+        else if (c <= 0xffff) { unicode_escape(b, (uint16_t)c); }
+        else {
+            if (c > 0x10ffff) return 0;
+            Py_UCS4 value = c - 0x10000;
+            uint16_t high = (uint16_t)(0xd800 + ((value >> 10) & 0x3ff));
+            uint16_t low = (uint16_t)(0xdc00 + (value & 0x3ff));
+            unicode_escape(b, high);
+            unicode_escape(b, low);
+        }
     }
     add(b, "\""); return !b->full;
 }
@@ -161,7 +174,10 @@ static void snapshot(Buffer *b, PyObject *v, int depth) {
         while (count < 20 && work_left && PyDict_Next(v, &pos, &key, &value)) {
             work_left--;
             if (!PyUnicode_CheckExact(key) || PyUnicode_GET_LENGTH(key) > 128) continue;
-            if (count++) add(b, ","); quoted_py(b, key, 128); add(b, ":"); snapshot(b, value, depth + 1);
+            if (count++) { add(b, ","); }
+            quoted_py(b, key, 128);
+            add(b, ":");
+            snapshot(b, value, depth + 1);
         }
         if (PyDict_Size(v) > count) truncated = 1;
         add(b, "}"); return;
@@ -309,7 +325,10 @@ static void event(Frame *f, const char *kind, int line) {
         if (!name || !strncmp(name, "__", 2)) continue;
         PyObject *value = PyFrame_GetVar(f->frame, key);
         if (!value) { PyErr_Clear(); continue; }
-        if (count++) add(&locals, ","); quoted_py(&locals, key, 128); add(&locals, ":"); snapshot(&locals, value, 0);
+        if (count++) { add(&locals, ","); }
+        quoted_py(&locals, key, 128);
+        add(&locals, ":");
+        snapshot(&locals, value, 0);
         Py_DECREF(value);
     }
     PyErr_Clear(); add(&locals, "}");
@@ -323,7 +342,8 @@ static void event(Frame *f, const char *kind, int line) {
     if (locals.full) { add(&step, "{}"); truncated = 1; } else addn(&step, locals.p, locals.len);
     add(&step, ",\"truncated_values\":"); add(&step, truncated ? "[\"snapshot_budget\",\"dynamic_extra_locals_omitted\"]}" : "[\"dynamic_extra_locals_omitted\"]}");
     if (step.full || step.len + 1 > trace.cap - trace.len) { truncated = 1; return; }
-    if (recorded++) add(&trace, ","); addn(&trace, step.p, step.len);
+    if (recorded++) { add(&trace, ","); }
+    addn(&trace, step.p, step.len);
 }
 static int trace_event(PyObject *unused, PyFrameObject *frame, int what, PyObject *arg) {
     (void)unused; (void)arg;
