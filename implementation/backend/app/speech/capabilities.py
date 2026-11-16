@@ -62,5 +62,8 @@ def speech_capabilities(settings=None) -> dict[str, object]:
         'code_mixing_modes': [mode.value for mode in CODEMIX_MODES],
         'tts_auto_language': True,
         'defaults': {'stt_language': 'en-IN', 'spoken_language': 'en-IN', 'voice': 'Avinash'},
-        'limits': {'capture_seconds': 30, 'pcm_sample_rate': 16000, 'pcm_channels': 1},
+        'limits': {'capture_seconds': 30, 'pcm_sample_rate': 16000, 'pcm_channels': 1,
+                   'requested_concurrency': settings.gnani_max_concurrency if settings else 1,
+                   'effective_concurrency': settings.gnani_effective_concurrency if settings else 1,
+                   'coordination_scope': 'single_coordinator'},
     }

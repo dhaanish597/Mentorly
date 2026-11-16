@@ -184,15 +184,18 @@ class ModelAssistedClaimExtractor:
         model: str | None = None,
         endpoint: str = "https://api.groq.com/openai/v1/chat/completions",
         http_client=None,
+        settings=None,
     ):
-        import os
-
-        self.api_key = (
-            api_key if api_key is not None else os.environ.get("VCC_GROQ_API_KEY", "")
-        )
-        self.model = model if model is not None else os.environ.get("VCC_LLM_MODEL", "")
+        from backend.app.core.config import validated_credential
+        self.api_key = validated_credential(api_key) or ''
+        self.model = model or ''
+        if settings is not None:
+            self.api_key = (validated_credential(settings.groq_api_key) or '') if settings.llm_provider == 'groq' else ''
+            self.model = settings.llm_model if self.api_key else ''
         self.endpoint = endpoint
         self.http_client = http_client
+        self.settings = settings
+        self.timeout_seconds = min(30,max(.1,settings.llm_timeout_ms / 1000)) if settings else 1.2
 
     def extract(
         self,
@@ -202,11 +205,16 @@ class ModelAssistedClaimExtractor:
         target_spec_version: SpecVersion = SpecVersion.EX1_V2_NEGATIVES_ALLOWED,
         provider_confidence: float | None = None,
         known_identifiers: list[str] | None = None,
+        session_id: str | None = None,
+        revision=None,
     ) -> ClaimInterpretation:
         import json
         import httpx
         from pydantic import TypeAdapter
         from backend.app.coaching.prompt_guard import wrap_untrusted_learner_inputs
+        from backend.app.coaching import model_budget
+        from backend.app.coaching.model_http import post_model, ModelThreadRequired
+        from backend.app.db.repository import RevisionConflictError
 
         fallback = extract_claim_deterministic(
             text,
@@ -216,7 +224,14 @@ class ModelAssistedClaimExtractor:
             known_identifiers=known_identifiers,
         )
         if not self.api_key or not self.model:
-            return fallback
+            return fallback.model_copy(update={'model_status':'MODEL_DISABLED' if self.settings and self.settings.llm_provider != 'groq' else 'MODEL_NOT_CONFIGURED'})
+        if self.settings is not None and session_id is None:
+            return fallback.model_copy(update={'model_status':'MODEL_NOT_CONFIGURED'})
+        if self.settings is None and self.http_client is None:
+            return fallback.model_copy(update={'model_status':'MODEL_NOT_CONFIGURED'})
+        reservation = model_budget.reserve(self.settings,session_id,'claim_extraction',revision) if self.settings else None
+        if self.settings is not None and not reservation:
+            return fallback.model_copy(update={'model_status':'MODEL_RATE_LIMITED'})
         schema = TypeAdapter(ClaimInterpretation)
         payload = {
             "model": self.model,
@@ -237,32 +252,42 @@ class ModelAssistedClaimExtractor:
                 },
             ],
         }
+        accounting='UNDISPATCHED'
+        status='MODEL_INVALID_RESPONSE'
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            if self.http_client is not None:
-                response = self.http_client.post(
-                    self.endpoint, json=payload, headers=headers, timeout=1.2
-                )
-            else:
-                with httpx.Client(timeout=1.2) as client:
-                    response = client.post(self.endpoint, json=payload, headers=headers)
+            if self.settings: model_budget.assert_current(self.settings,session_id,revision)
+            accounting='UNCERTAIN'
+            response=post_model(self.endpoint,payload=payload,headers=headers,timeout_seconds=self.timeout_seconds,client=self.http_client)
+            accounting='COMMITTED'
+            if self.settings: model_budget.assert_current(self.settings,session_id,revision)
             if response.status_code != 200:
-                return fallback
+                status='MODEL_RATE_LIMITED' if response.status_code == 429 else 'MODEL_UNAVAILABLE'
+                return fallback.model_copy(update={'model_status':status})
             content = response.json()["choices"][0]["message"]["content"]
             if not isinstance(content, str) or len(content) > 8000:
-                return fallback
+                return fallback.model_copy(update={'model_status':status})
             claim = schema.validate_json(content)
             if claim.confirmed_at is not None or claim.challenge_id != challenge_id:
-                return fallback
+                return fallback.model_copy(update={'model_status':status})
             return claim.model_copy(
                 update={
                     "extraction_method": ExtractionMethod.MODEL_ASSISTED,
                     "provider_confidence": provider_confidence,
                     "confirmed_at": None,
+                    "model_status": 'MODEL_ASSISTED',
                 }
             )
-        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
-            return fallback
+        except RevisionConflictError: raise
+        except ModelThreadRequired:
+            accounting='UNDISPATCHED'; status='MODEL_UNAVAILABLE'
+        except (httpx.TimeoutException, TimeoutError): status='MODEL_TIMEOUT'
+        except httpx.HTTPError: status='MODEL_UNAVAILABLE'
+        except RuntimeError: status='MODEL_UNAVAILABLE'
+        except (ValueError, TypeError, KeyError, IndexError): status='MODEL_INVALID_RESPONSE'
+        finally:
+            if reservation: model_budget.settle(self.settings,reservation,accounting)
+        return fallback.model_copy(update={'model_status':status})

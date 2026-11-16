@@ -127,11 +127,11 @@ export function CodebaseSessionHistory({
             <li key={session.session_id} className="session-item">
               <div
                 className="session-clickable"
-                onClick={() => onSelectSession(session)}
+                onClick={(e) => { if (!(e.target as Element).closest('form')) onSelectSession(session); }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') onSelectSession(session);
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelectSession(session); }
                 }}
               >
                 <div className="session-item-header">
@@ -141,7 +141,6 @@ export function CodebaseSessionHistory({
                 {editingId === session.session_id ? (
                   <form
                     className="rename-form"
-                    onClick={(e) => e.stopPropagation()}
                     onSubmit={(e) => {
                       e.preventDefault();
                       void handleRename(session.session_id);
@@ -151,7 +150,6 @@ export function CodebaseSessionHistory({
                       type="text"
                       value={editTitle}
                       onChange={(e) => setEditTitle(e.target.value)}
-                      autoFocus
                     />
                     <button type="submit" disabled={isBusy} className="rename-save">
                       Save
@@ -204,7 +202,7 @@ export function CodebaseSessionHistory({
               </div>
 
               {deletingId === session.session_id && (
-                <div className="delete-confirm-popover" onClick={(e) => e.stopPropagation()}>
+                <div className="delete-confirm-popover">
                   <p>Delete this learning session?</p>
                   <div className="delete-confirm-buttons">
                     <button

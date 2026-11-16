@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
+from uuid import uuid4
+
+from contextlib import closing
 from datetime import datetime, timezone
-import hashlib
 import io
 import json
 from pathlib import Path
@@ -15,6 +16,9 @@ import wave
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
+from backend.app.repo_learning import provider_dispatch
+from backend.app.repo_learning.audio_storage import store_audio
 
 from backend.app.core.config import Settings, get_settings, validated_credential
 from backend.app.db.migrations import open_connection
@@ -82,35 +86,44 @@ INITIAL_MENTOR_PROMPT = (
 class CodebaseMentorService:
     """Orchestrates persistent sessions, Socratic reasoning, source retrieval, and Gnani voice."""
 
-    def __init__(self, db_path: str | Path, tts_cache_dir: str | Path | None = None) -> None:
-        self.db_path = str(db_path)
+    def __init__(self, db_path: str | Path, tts_cache_dir: str | Path | None = None, request=None) -> None:
+        self.db_path = db_path
+        self.request = request
+        self.workspace_id = None
+        self.provider_request_key = None
+        self.provider_fence_token = None
         self.tts_cache_dir = Path(tts_cache_dir) if tts_cache_dir else Path("./data/tts_cache")
-        self.tts_cache_dir.mkdir(parents=True, exist_ok=True)
+
+
+    async def _dispatch(self, session_id, operation, dispatch, settings, *, seconds=0, chars=0, calls=1):
+        return await provider_dispatch.run(self.db_path, self.request, self.workspace_id, session_id,
+                                           operation, dispatch, seconds=seconds, chars=chars, calls=calls,
+                                           request_key=self.provider_request_key, token=self.provider_fence_token)
 
     def _get_adapter(self, settings: Settings | None = None) -> GnaniSpeechAdapter:
         cfg = settings or get_settings()
         api_key = cfg.gnani_api_key.get_secret_value() if cfg.gnani_api_key else None
-        return GnaniSpeechAdapter(api_key=api_key)
+        return GnaniSpeechAdapter(api_key=api_key,
+                                  stt_endpoint=cfg.gnani_base_url.rstrip('/') + '/stt/v3',
+                                  tts_endpoint=cfg.gnani_base_url.rstrip('/') + '/api/v1/tts/sse')
 
     async def _synthesize_audio(self, session_id: str, text: str, settings: Settings | None = None) -> tuple[str | None, bytes | None]:
         """Synthesize speakable text to WAV audio using Gnani TTS."""
         cfg = settings or get_settings()
-        if not cfg.gnani_api_key:
+        if not validated_credential(cfg.gnani_api_key):
             return None, None
         adapter = self._get_adapter(cfg)
         speakable = to_speakable(text)
-        speak_text = speakable[0] if speakable else text
+        speak_text = "\n".join(speakable) if speakable else text
         req = TTSRequest(session_id=session_id, text=speak_text, language=LanguageMode.EN_IN)
         try:
-            res = await adapter.synthesize_tts(req)
+            res = await self._dispatch(session_id, 'TTS', lambda: adapter.synthesize_tts(req), cfg, chars=sum(len(c) for c in to_speakable(speak_text)), calls=len(to_speakable(speak_text)))
             if res and res.wav_bytes:
-                audio_hash = hashlib.sha256(res.wav_bytes).hexdigest()[:16]
-                filename = f"{session_id}_{audio_hash}.wav"
-                target = self.tts_cache_dir / filename
-                target.write_bytes(res.wav_bytes)
-                return f"/api/v1/codebase-learning/audio/{filename}", res.wav_bytes
-        except Exception:
-            pass
+                return None, res.wav_bytes
+        except HTTPException:
+            raise
+        except (TimeoutError, httpx.TransportError):
+            return None, None
         return None, None
 
     async def create_session(
@@ -125,6 +138,15 @@ class CodebaseMentorService:
         settings: Settings | None = None,
     ) -> dict[str, Any]:
         """Create a new codebase learning session bound to a ready snapshot."""
+        self.workspace_id = workspace_id
+        cfg = settings or get_settings()
+        create_key = None
+        if validated_credential(cfg.gnani_api_key):
+            raw_key = provider_dispatch.idempotency_key(self.request) if self.request is not None else None
+            if not raw_key or len(raw_key) > 128:
+                raise HTTPException(422, 'Cloud greeting requires an Idempotency-Key')
+            create_key = workspace_id + ':CREATE:' + raw_key
+        admitted_create = False
         conn = open_connection(self.db_path)
         try:
             # Validate snapshot is ready
@@ -135,12 +157,14 @@ class CodebaseMentorService:
             if not snap:
                 raise ValueError("Repository snapshot is not ready or does not belong to this workspace.")
 
+            if create_key:
+                conn.execute('BEGIN IMMEDIATE')
+                if conn.execute('SELECT 1 FROM codebase_provider_requests WHERE id=?', (create_key,)).fetchone():
+                    raise HTTPException(409, 'Session creation already admitted; retrieve session history')
             session_id = _id("cls_")
             session_title = title.strip() if title and title.strip() else f"Exploring {repo_name}"
             now_iso = _now()
 
-            # Generate opening greeting audio
-            audio_url, _ = await self._synthesize_audio(session_id, INITIAL_MENTOR_PROMPT, settings)
 
             msg_id = _id("clm_")
             conn.execute(
@@ -157,6 +181,7 @@ class CodebaseMentorService:
                 ),
             )
 
+            audio_url = None
             conn.execute(
                 """INSERT INTO codebase_learning_messages(
                     id, session_id, sequence, role, content, audio_path, citations_json, metadata_json, created_at
@@ -166,9 +191,41 @@ class CodebaseMentorService:
                     "[]", json.dumps({"stage": "greeting"}), now_iso,
                 ),
             )
+            if create_key:
+                conn.execute('INSERT INTO codebase_provider_requests VALUES(?,?,?,?,?)', (create_key, session_id, workspace_id, 'ACTIVE', now_iso))
+                self.provider_request_key = create_key
+                self.provider_fence_token = str(uuid4())
+                conn.execute('INSERT INTO codebase_request_fences VALUES(?,?,?)', (create_key, self.provider_fence_token, 'ACTIVE'))
+                admitted_create = True
+            conn.commit()
+            audio_url, audio_bytes = await self._synthesize_audio(session_id, INITIAL_MENTOR_PROMPT, settings)
+            if audio_bytes:
+                conn.execute("BEGIN IMMEDIATE")
+                if self.request is not None:
+                    provider_dispatch.owned(conn, self.request, workspace_id, session_id)
+                    if self.provider_request_key:
+                        provider_dispatch.check_fence(conn, self.provider_request_key, self.provider_fence_token)
+                try:
+                    audio_url = store_audio(conn, session_id, audio_bytes)
+                except ValueError:
+                    audio_url = None
+
+            if audio_url:
+                conn.execute('UPDATE codebase_learning_messages SET audio_path=? WHERE id=?', (audio_url, msg_id))
+            conn.commit()
             return await self.get_session(workspace_id, session_id)
+        except BaseException:
+            conn.rollback()
+            if admitted_create:
+                try:
+                    provider_dispatch.recover_fenced_request(self.db_path, create_key)
+                except ValueError:
+                    pass  # Another recovery already fenced it.
+            raise
         finally:
             conn.close()
+            if admitted_create:
+                provider_dispatch.finish(self.db_path, create_key)
 
     async def list_sessions(self, workspace_id: str, query: str | None = None) -> list[dict[str, Any]]:
         """List active sessions for a workspace grouped by updated_at."""
@@ -346,6 +403,7 @@ class CodebaseMentorService:
 
     async def _call_llm_mentor(
         self,
+        session_id: str,
         repo_name: str,
         arch_overview: str,
         citations: list[dict[str, Any]],
@@ -355,7 +413,7 @@ class CodebaseMentorService:
         settings: Settings,
     ) -> str:
         """Call Groq or generate a grounded Socratic mentor response."""
-        key = settings.groq_api_key.get_secret_value() if settings.groq_api_key else None
+        key = validated_credential(settings.groq_api_key)
         model = settings.llm_model or "qwen/qwen3.8-27b"
 
         citation_evidence = "\n".join(
@@ -397,22 +455,27 @@ class CodebaseMentorService:
 
         if key:
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        headers={"Authorization": f"Bearer {key}"},
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "max_tokens": 300,
-                            "temperature": 0.3,
-                        },
-                    )
-                    if resp.status_code == 200:
-                        content = resp.json()["choices"][0]["message"]["content"].strip()
-                        if content:
-                            return content
-            except Exception:
+                async def dispatch():
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {key}"},
+                            json={
+                                "model": model,
+                                "messages": messages,
+                                "max_tokens": 300,
+                                "temperature": 0.3,
+                            },
+                        )
+                    return resp
+                resp = await self._dispatch(session_id, 'MODEL', dispatch, settings)
+                if resp.status_code == 200:
+                    content = resp.json()["choices"][0]["message"]["content"].strip()
+                    if content:
+                        return content
+            except HTTPException:
+                raise
+            except (TimeoutError, httpx.TransportError):
                 pass
 
         # Grounded deterministic fallback if external provider is offline
@@ -438,7 +501,27 @@ class CodebaseMentorService:
             return "intermediate"
         return current if current != "undetermined" else "intermediate"
 
-    async def process_turn(
+    async def process_turn(self, workspace_id, session_id, **kwargs):
+        self.workspace_id = workspace_id
+        key = None
+        if self.request is not None:
+            key = provider_dispatch.begin(self.db_path, self.request, workspace_id, session_id)
+            self.provider_request_key = key
+            self.provider_fence_token = provider_dispatch.fence_token(self.db_path, key)
+        try:
+            return await self._process_turn_inner(workspace_id, session_id, **kwargs)
+        except BaseException:
+            if key:
+                try:
+                    provider_dispatch.recover_fenced_request(self.db_path, key)
+                except ValueError:
+                    pass
+            raise
+        finally:
+            if key:
+                provider_dispatch.finish(self.db_path, key)
+
+    async def _process_turn_inner(
         self,
         workspace_id: str,
         session_id: str,
@@ -449,16 +532,30 @@ class CodebaseMentorService:
     ) -> dict[str, Any]:
         """Process a learner turn (voice or text), reason, synthesize TTS, and persist."""
         cfg = settings or get_settings()
+        self.workspace_id = workspace_id
         recognized_transcript: str | None = None
+
+        # Reject missing or foreign sessions before contacting a paid provider.
+        with closing(open_connection(self.db_path)) as validation_db:
+            owned = validation_db.execute(
+                "SELECT 1 FROM codebase_learning_sessions WHERE id=? AND workspace_id=? AND deleted_at IS NULL",
+                (session_id, workspace_id),
+            ).fetchone()
+        if not owned:
+            raise LookupError("Session not found.")
 
         # 1. Handle Voice Input if present
         if audio_wav_bytes:
-            if not cfg.gnani_api_key:
+            if not validated_credential(cfg.gnani_api_key):
                 raise ValueError("Voice processing is unavailable because Gnani credentials are not configured.")
             normalized_bytes = _normalize_wav_to_16k_mono(audio_wav_bytes)
             adapter = self._get_adapter(cfg)
             stt_req = STTRequest(session_id=session_id, language_mode=LanguageMode.EN_IN)
-            stt_res = await adapter.transcribe_rest(stt_req, normalized_bytes)
+            with wave.open(io.BytesIO(normalized_bytes), 'rb') as wav:
+                seconds = wav.getnframes() / wav.getframerate()
+            if seconds > 30:
+                raise ValueError('Voice input exceeds 30 seconds')
+            stt_res = await self._dispatch(session_id, 'STT', lambda: adapter.transcribe_rest(stt_req, normalized_bytes), cfg, seconds=seconds)
             recognized_transcript = stt_res.normalized_transcript or stt_res.raw_transcript
             learner_text = recognized_transcript
 
@@ -499,11 +596,20 @@ class CodebaseMentorService:
 
             # Reason with LLM mentor
             mentor_reply = await self._call_llm_mentor(
-                repo_name, arch_overview, citations, history, learner_text, new_level, cfg,
+                session_id, repo_name, arch_overview, citations, history, learner_text, new_level, cfg,
             )
 
             # Synthesize mentor speech
-            audio_url, _ = await self._synthesize_audio(session_id, mentor_reply, cfg)
+            audio_url, audio_bytes = await self._synthesize_audio(session_id, mentor_reply, cfg)
+            conn.execute('BEGIN IMMEDIATE')
+            if self.request is not None:
+                provider_dispatch.owned(conn, self.request, workspace_id, session_id)
+                provider_dispatch.check_fence(conn, self.provider_request_key, self.provider_fence_token)
+            if audio_bytes:
+                try:
+                    audio_url = store_audio(conn, session_id, audio_bytes)
+                except ValueError:
+                    audio_url = None
 
             now_iso = _now()
             max_seq = conn.execute(
@@ -550,6 +656,7 @@ class CodebaseMentorService:
                 (now_iso, new_level, updated_title, mentor_reply, session_id),
             )
 
+            conn.commit()
             return {
                 "session_id": session_id,
                 "learner_message": {

@@ -9,7 +9,7 @@ Public execution is fail-closed: fresh no-network per-invocation gVisor with rea
 ## Local startup from `/Users/dhaanish/Desktop/VIVA`
 
 ```bash
-./.venv-takeover/bin/python -m uvicorn backend.app.main:app --app-dir implementation --host 127.0.0.1 --port 8000
+./.venv-takeover/bin/python implementation/scripts/start_local.py --preview
 ```
 
 ```bash
@@ -17,6 +17,8 @@ npm --prefix implementation/frontend run dev -- --host 127.0.0.1 --port 5173
 ```
 
 `.claude/launch.json` offers the same previews without secrets. Preserve any process already using the configured frontend port; use the assigned preview port instead. Typed input works without provider credentials; unavailable isolation is honest, not successful verification.
+
+The canonical local pair is backend8020/frontend5173 from `config/local-development.json`; both localhost and127.0.0.1 CORS origins are allowed. Explicit credentials require `--env-file /absolute/private/server.env` or `VCC_ENV_FILE`. `implementation/scripts/doctor.py` reports local routing and readiness without provider calls or secret values. A production frontend requires a same-origin reverse proxy for `/api/v1`; the development proxy is not a deployment configuration.
 
 ## Read-only drift and complete checks
 

@@ -1,0 +1,6 @@
+vercel-sandbox==1.0.0
+vercel-internal-core==0.3.0
+httpx2[ws]==2.16.0
+httpcore2==2.16.0
+vercel-oidc==0.12.0
+vercel-headers==0.8.0

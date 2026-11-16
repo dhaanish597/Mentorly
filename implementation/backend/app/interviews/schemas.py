@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+from backend.app.assessments.schemas import SemanticReview
 from backend.app.models.enums import LanguageMode
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -35,6 +36,7 @@ class Finish(Strict):
 class Answer(Finish):
     answer: str = Field(min_length=1, max_length=12000)
     code: str | None = Field(default=None, max_length=24000)
+    allow_external: bool = False
 
     @field_validator("answer")
     @classmethod
@@ -84,6 +86,7 @@ class AnswerReport(Strict):
     answer: str
     code: str | None
     indicators: list[Indicator]
+    semantic_review: SemanticReview | None = None
 
 
 class Assessment(Strict):

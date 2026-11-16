@@ -1,6 +1,7 @@
 """Exported independently: mount router without an additional /api/v1 prefix."""
 
 from __future__ import annotations
+from backend.app.db.migrations import database_target
 
 from typing import Annotated, Literal
 
@@ -106,7 +107,7 @@ def _scope(
     token: str = Header(..., alias="X-Workspace-Token"),
 ) -> tuple[str, str]:
     authenticate_workspace(request, workspace, token)
-    return request.app.state.settings.database_path, workspace
+    return database_target(request.app.state.settings), workspace
 
 
 Scope = Annotated[tuple[str, str], Depends(_scope)]

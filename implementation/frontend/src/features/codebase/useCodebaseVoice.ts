@@ -52,10 +52,11 @@ export function useCodebaseVoice({
 
   useEffect(() => {
     isMounted.current = true;
+    const activeGeneration = generation;
     playerRef.current = new AudioPlayer();
     return () => {
       isMounted.current = false;
-      generation.current++;
+      activeGeneration.current++;
       if (audioElementRef.current) {
         try {
           audioElementRef.current.pause();
@@ -220,74 +221,16 @@ export function useCodebaseVoice({
       setActiveAudioUrl(audioUrl);
       const currentGen = generation.current;
 
-      // 1. Prefer native HTML5 Audio for seamless cross-browser playback (skip in jsdom test env)
-      const isJsdom = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent);
-      if (!isJsdom && typeof window !== 'undefined' && typeof window.Audio === 'function') {
-        try {
-          const audio = new Audio(audioUrl);
-          audioElementRef.current = audio;
-          audio.volume = 1.0;
-
-          return await new Promise<boolean>((resolve) => {
-            let settled = false;
-
-            const onFinish = (success: boolean) => {
-              if (settled) return;
-              settled = true;
-              audio.onended = null;
-              audio.onerror = null;
-              if (audioElementRef.current === audio) {
-                audioElementRef.current = null;
-              }
-              setActiveAudioUrl(null);
-
-              if (isMounted.current && currentGen === generation.current && enabled) {
-                setSafeState('LISTENING');
-                void startListening();
-              } else if (isMounted.current) {
-                setSafeState('IDLE');
-              }
-              resolve(success);
-            };
-
-            audio.onended = () => onFinish(true);
-            audio.onerror = () => onFinish(false);
-
-            try {
-              const playRes = audio.play();
-              if (playRes && typeof playRes.then === 'function') {
-                playRes.then(() => {
-                  setAudioUnlocked(true);
-                }).catch((playErr) => {
-                  console.warn('Autoplay blocked or audio playback rejected:', playErr);
-                  if (isMounted.current) {
-                    setSafeState('PERMISSION_REQUIRED');
-                  }
-                  onFinish(false);
-                });
-              } else {
-                setAudioUnlocked(true);
-              }
-            } catch (playErr) {
-              console.warn('Audio play call threw:', playErr);
-              if (isMounted.current) {
-                setSafeState('PERMISSION_REQUIRED');
-              }
-              onFinish(false);
-            }
-          });
-        } catch (nativeErr) {
-          console.warn('Native Audio instantiation failed, falling back to AudioPlayer:', nativeErr);
-        }
-      }
-
-      // 2. Fallback to Web Audio AudioPlayer (useful in mock environments / tests)
+      // Audio is private to the workspace and must be fetched with its capability.
       try {
-        const resp = await fetch(audioUrl);
+        if (!/^\/api\/v1\/codebase-learning\/audio\/[A-Za-z0-9_]+\.wav$/.test(audioUrl)) throw new Error('Invalid audio URL.');
+        const resp = await fetch(audioUrl, { headers: { 'X-Workspace-Id': workspace.id, 'X-Workspace-Token': workspace.token } });
+        if (!isMounted.current || currentGen !== generation.current) return false;
         if (!resp.ok) {
           throw new Error('Could not fetch synthesized speech.');
         }
         const arrayBuf = await resp.arrayBuffer();
+        if (!isMounted.current || currentGen !== generation.current) return false;
         const wavBytes = new Uint8Array(arrayBuf);
 
         return await new Promise<boolean>((resolve) => {
@@ -332,7 +275,7 @@ export function useCodebaseVoice({
         return false;
       }
     },
-    [enabled, onError, sessionId, setSafeState, startListening]
+    [enabled, onError, sessionId, setSafeState, startListening, workspace.id, workspace.token]
   );
 
   // Initial unlock & greeting trigger

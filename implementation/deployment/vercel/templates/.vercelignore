@@ -1,0 +1,23 @@
+# The staging allowlist is authoritative; these are additional upload exclusions.
+.git
+.vercel
+.env
+.env.*
+**/.env
+**/.env.*
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/.venv*
+**/tests
+**/data
+**/*.sqlite*
+**/*.db*
+**/*.wav
+**/*.mp3
+**/*.zip
+**/*.pem
+**/*.key
+**/*.map
+evidence
+imports

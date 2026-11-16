@@ -11,6 +11,7 @@ from backend.app.db.migrations import apply_migrations, open_connection
 from backend.app.main import create_app
 from backend.app.repo_learning.ingest import golden
 from backend.app.repo_learning.service import create as create_repo, queue as queue_repo
+from backend.app.studio.security import digest_token
 
 
 @pytest.fixture
@@ -22,7 +23,7 @@ def mentor_env(tmp_path: Path):
 
     conn = open_connection(db_path)
     # Create workspace
-    conn.execute("INSERT INTO studio_workspaces VALUES ('ws_mentor', 'tok_hash', '2026-11-15T00:00:00', '2026-11-16T00:00:00', NULL)")
+    conn.execute("INSERT INTO studio_workspaces VALUES (?, ?, ?, ?, NULL)", ('ws_mentor', digest_token('tok_hash'), '2026-11-15T00:00:00+00:00', '2099-11-16T00:00:00+00:00'))
 
     # Ingest golden repo
     files, cov = golden("REPO-EXP-01")
@@ -31,7 +32,7 @@ def mentor_env(tmp_path: Path):
     conn.close()
 
     settings = Settings(
-        _env_file=".env",
+        _env_file=None,
         database_path=db_path,
         tts_cache_dir=tts_dir,
     )

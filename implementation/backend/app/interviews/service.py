@@ -7,6 +7,8 @@ from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from sqlite3 import Connection, Row
 
+from backend.app.assessments.review import digest, initial_review, neutral_followup
+from backend.app.assessments.schemas import SemanticReview
 from backend.app.db.migrations import open_connection
 from fastapi import HTTPException
 
@@ -225,6 +227,7 @@ def submit(
     workspace_id: str,
     body: Answer,
     hook: CompletionHook | None = None,
+    semantic_review: SemanticReview | None = None,
 ) -> dict:
     before = owned(conn, session_id, workspace_id)
     session = expire(conn, before, hook)
@@ -239,11 +242,24 @@ def submit(
         (session_id, session["epoch"]),
     ).fetchone()
     question = json.loads(row["question_json"])
+    if semantic_review is None:
+        semantic_review = initial_review(
+            {"question": question["text"], "answer": body.answer},
+            session["epoch"],
+            "MODEL_DISABLED",
+        )
+    if semantic_review.reviewed_answer_revision != session[
+        "epoch"
+    ] or semantic_review.answer_sha256 != digest(body.answer):
+        raise HTTPException(
+            409, "Semantic review is bound to a different answer revision"
+        )
     timestamp = now_iso()
+    answer_id = str(uuid.uuid4())
     conn.execute(
         "INSERT INTO interview_answers VALUES(?,?,?,?,?,?,?)",
         (
-            str(uuid.uuid4()),
+            answer_id,
             session_id,
             question["id"],
             session["epoch"],
@@ -252,6 +268,10 @@ def submit(
             timestamp,
         ),
     )
+    conn.execute(
+        "INSERT INTO interview_semantic_reviews VALUES(?,?)",
+        (answer_id, semantic_review.model_dump_json()),
+    )
     event(
         conn,
         session_id,
@@ -259,7 +279,9 @@ def submit(
         {"question_id": question["id"], "epoch": session["epoch"]},
         timestamp,
     )
-    next_question = advance_question(conn, session, question, body.answer)
+    next_question = advance_question(
+        conn, session, question, body.answer, semantic_review
+    )
     if next_question is None:
         return view(conn, complete(conn, session, "questions_exhausted", hook))
     conn.execute(
@@ -270,9 +292,24 @@ def submit(
 
 
 def advance_question(
-    conn: Connection, session: Row, question: dict, answer: str
+    conn: Connection,
+    session: Row,
+    question: dict,
+    answer: str,
+    semantic_review: SemanticReview | None = None,
 ) -> dict | None:
     if question["kind"] == "primary":
+        if (
+            semantic_review
+            and semantic_review.model_provenance.status == "MODEL_ASSISTED"
+        ):
+            return {
+                **question,
+                "kind": "followup",
+                "parent_id": question["id"],
+                "text": neutral_followup(semantic_review),
+                "probe_target": "semantic_quality",
+            }
         return POLICIES[session["type"]].followup(question, answer)
     used = conn.execute(
         "SELECT COUNT(*) FROM interview_questions WHERE session_id=? AND json_extract(question_json,'$.kind')='primary'",

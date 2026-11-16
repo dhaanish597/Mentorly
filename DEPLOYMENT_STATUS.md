@@ -1,3 +1,5 @@
+> Historical workstream record. Current integration and acceptance status: [production integration checkpoint](docs/engineering/PRODUCTION_INTEGRATION_CHECKPOINT_20261115.md). This document does not certify the current candidate.
+
 # Deployment status
 
 Updated 2026-11-15 after the deployment follow-up. **Not deployed; the cloud runtime port and learner-execution integration remain incomplete.** Current verification is recorded below; earlier ledger entries retain their original context.

@@ -14,6 +14,10 @@ def sweep(db_path):
         conn.execute('BEGIN IMMEDIATE')
         expired_workspaces=[r['id'] for r in conn.execute('SELECT id FROM studio_workspaces WHERE deleted_at IS NULL AND expires_at<=? LIMIT 100',(now,))]
         for wid in expired_workspaces:
+            from backend.app.db.repository import tombstone_session_in_connection
+            linked=[r['session_id'] for r in conn.execute('SELECT session_id FROM workspace_dsa_sessions WHERE workspace_id=?',(wid,))]
+            for linked_id in linked:
+                tombstone_session_in_connection(conn,linked_id,now)
             conn.execute('UPDATE studio_workspaces SET deleted_at=? WHERE id=?',(now,wid))
             conn.execute('UPDATE studio_sessions SET deleted_at=?,epoch=epoch+1 WHERE workspace_id=? AND deleted_at IS NULL',(now,wid))
             conn.execute('DELETE FROM repo_snapshots WHERE workspace_id=?',(wid,))

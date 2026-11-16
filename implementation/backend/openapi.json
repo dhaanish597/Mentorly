@@ -4,6 +4,11 @@
       "Answer": {
         "additionalProperties": false,
         "properties": {
+          "allow_external": {
+            "default": false,
+            "title": "Allow External",
+            "type": "boolean"
+          },
           "answer": {
             "maxLength": 12000,
             "minLength": 1,
@@ -156,6 +161,17 @@
           "question_id": {
             "title": "Question Id",
             "type": "string"
+          },
+          "semantic_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SemanticReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
@@ -171,6 +187,11 @@
       "AnswerRequest": {
         "additionalProperties": false,
         "properties": {
+          "allow_external": {
+            "default": false,
+            "title": "Allow External",
+            "type": "boolean"
+          },
           "answer": {
             "maxLength": 2000,
             "minLength": 1,
@@ -182,6 +203,34 @@
             "minimum": 1.0,
             "title": "Expected Epoch",
             "type": "integer"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "maxLength": 12000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Explanation"
+          },
+          "option_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Option Id"
           },
           "question_id": {
             "maxLength": 128,
@@ -804,6 +853,35 @@
         "title": "CoachAction",
         "type": "object"
       },
+      "CoachMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "kind",
+          "text"
+        ],
+        "title": "CoachMessage",
+        "type": "object"
+      },
       "CodeUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1139,6 +1217,44 @@
           "spec_acknowledged"
         ],
         "title": "CreateSessionResponse",
+        "type": "object"
+      },
+      "Criterion": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "enum": [
+              "algorithm_correctness",
+              "architecture_reasoning",
+              "codebase_comprehension",
+              "technical_communication"
+            ],
+            "title": "Dimension",
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "observed_signal",
+              "abstained_insufficient_signal"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "status",
+          "evidence_ids"
+        ],
+        "title": "Criterion",
         "type": "object"
       },
       "DecisionRequest": {
@@ -1902,6 +2018,44 @@
         "title": "EvidenceLink",
         "type": "object"
       },
+      "EvidenceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "minimum": 1.0,
+            "title": "End",
+            "type": "integer"
+          },
+          "excerpt": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "question",
+              "answer",
+              "lesson_rationale"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "start": {
+            "minimum": 0.0,
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source",
+          "start",
+          "end",
+          "excerpt"
+        ],
+        "title": "EvidenceRef",
+        "type": "object"
+      },
       "EvidenceRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2452,6 +2606,36 @@
         "title": "ExerciseSpecMetadata",
         "type": "object"
       },
+      "ExplanationReview": {
+        "additionalProperties": false,
+        "properties": {
+          "changes_objective_credit": {
+            "const": false,
+            "default": false,
+            "title": "Changes Objective Credit",
+            "type": "boolean"
+          },
+          "review": {
+            "$ref": "#/components/schemas/SemanticReview"
+          },
+          "status": {
+            "enum": [
+              "SUPPORTED",
+              "NEEDS_CLARIFICATION",
+              "INCORRECT_WITH_EVIDENCE",
+              "UNASSESSED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "review"
+        ],
+        "title": "ExplanationReview",
+        "type": "object"
+      },
       "ExtractionMethod": {
         "enum": [
           "DETERMINISTIC",
@@ -2506,6 +2690,96 @@
           "turn_id"
         ],
         "title": "FeedbackBody",
+        "type": "object"
+      },
+      "FeedbackResult": {
+        "additionalProperties": false,
+        "description": "Assistance availability is separate from assessment correctness.",
+        "properties": {
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/Criterion"
+            },
+            "title": "Criteria",
+            "type": "array"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "event_sequence": {
+            "title": "Event Sequence",
+            "type": "integer"
+          },
+          "evidence_turn_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Turn Ids",
+            "type": "array"
+          },
+          "model_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/backend__app__studio__feedback__ModelProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "model_status": {
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "DETERMINISTIC_FALLBACK"
+            ],
+            "title": "Model Status",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "model_assisted",
+              "deterministic_fallback"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unassessed",
+              "abstained_insufficient_signal"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "uncertainty": {
+            "title": "Uncertainty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "question",
+          "evidence_turn_ids",
+          "uncertainty",
+          "source",
+          "criteria",
+          "model_status",
+          "event_sequence",
+          "epoch"
+        ],
+        "title": "FeedbackResult",
         "type": "object"
       },
       "Finish": {
@@ -3036,6 +3310,41 @@
         "title": "LearningAnswer",
         "type": "object"
       },
+      "LearningFeedback": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_key_revealed": {
+            "title": "Answer Key Revealed",
+            "type": "boolean"
+          },
+          "correct": {
+            "title": "Correct",
+            "type": "boolean"
+          },
+          "explanation_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplanationReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "correct",
+          "message",
+          "answer_key_revealed"
+        ],
+        "title": "LearningFeedback",
+        "type": "object"
+      },
       "LearningPlan": {
         "properties": {
           "attempts": {
@@ -3128,6 +3437,225 @@
           "limitations"
         ],
         "title": "LearningPlan",
+        "type": "object"
+      },
+      "LearningQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "option_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Option Ids"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Options"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "response_kind": {
+            "enum": [
+              "multiple_choice",
+              "numeric",
+              "boolean",
+              "enumeration"
+            ],
+            "title": "Response Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prompt",
+          "response_kind"
+        ],
+        "title": "LearningQuestion",
+        "type": "object"
+      },
+      "LearningReport": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplanationReview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "explanation_rubric": {
+            "title": "Explanation Rubric",
+            "type": "object"
+          },
+          "lesson_completed": {
+            "title": "Lesson Completed",
+            "type": "boolean"
+          },
+          "mastery_awarded": {
+            "const": false,
+            "title": "Mastery Awarded",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_completed",
+          "mastery_awarded",
+          "summary",
+          "explanation_rubric"
+        ],
+        "title": "LearningReport",
+        "type": "object"
+      },
+      "LearningSessionView": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_count": {
+            "title": "Answer Count",
+            "type": "integer"
+          },
+          "catalog_version": {
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "coach_messages": {
+            "items": {
+              "$ref": "#/components/schemas/CoachMessage"
+            },
+            "title": "Coach Messages",
+            "type": "array"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "deadline": {
+            "title": "Deadline",
+            "type": "null"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hint"
+          },
+          "hint_count": {
+            "title": "Hint Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "language_mode": {
+            "title": "Language Mode",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "string"
+          },
+          "mode": {
+            "const": "practice",
+            "title": "Mode",
+            "type": "string"
+          },
+          "question": {
+            "$ref": "#/components/schemas/LearningQuestion"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearningReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "state": {
+            "enum": [
+              "active",
+              "completed",
+              "exhausted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lesson_id",
+          "epoch",
+          "mode",
+          "state",
+          "language_mode",
+          "catalog_version",
+          "content_hash",
+          "question",
+          "coach_messages",
+          "answer_count",
+          "hint_count",
+          "deadline",
+          "feedback",
+          "report"
+        ],
+        "title": "LearningSessionView",
         "type": "object"
       },
       "LearningState": {
@@ -4062,6 +4590,146 @@
           "turn_generation"
         ],
         "title": "RevisionRef",
+        "type": "object"
+      },
+      "SemanticCriterion": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_refs": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "maxItems": 4,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "explanation": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "enum": [
+              "relevance",
+              "reasoning_coherence",
+              "assumptions",
+              "example_alignment"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "SUPPORTED",
+              "PARTIALLY_SUPPORTED",
+              "CONTRADICTED_BY_EVIDENCE",
+              "INSUFFICIENT_EVIDENCE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "explanation",
+          "evidence_refs"
+        ],
+        "title": "SemanticCriterion",
+        "type": "object"
+      },
+      "SemanticReview": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Answer Sha256",
+            "type": "string"
+          },
+          "context_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Context Sha256",
+            "type": "string"
+          },
+          "correctness_assessed": {
+            "const": false,
+            "default": false,
+            "title": "Correctness Assessed",
+            "type": "boolean"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/SemanticCriterion"
+            },
+            "maxItems": 4,
+            "title": "Criteria",
+            "type": "array"
+          },
+          "evidence_refs": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "maxItems": 16,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "followup": {
+            "title": "Followup",
+            "type": "string"
+          },
+          "model_provenance": {
+            "$ref": "#/components/schemas/backend__app__assessments__schemas__ModelProvenance"
+          },
+          "reviewed_answer_revision": {
+            "minimum": 1.0,
+            "title": "Reviewed Answer Revision",
+            "type": "integer"
+          },
+          "rubric_version": {
+            "const": "semantic-quality-v1",
+            "default": "semantic-quality-v1",
+            "title": "Rubric Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "SUPPORTED",
+              "PARTIALLY_SUPPORTED",
+              "CONTRADICTED_BY_EVIDENCE",
+              "INSUFFICIENT_EVIDENCE",
+              "NOT_EVALUATED",
+              "MODEL_UNAVAILABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "uncertainty": {
+            "title": "Uncertainty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "uncertainty",
+          "explanation",
+          "followup",
+          "reviewed_answer_revision",
+          "answer_sha256",
+          "context_sha256",
+          "model_provenance"
+        ],
+        "title": "SemanticReview",
         "type": "object"
       },
       "SessionCapability": {
@@ -5211,6 +5879,69 @@
         "title": "WorkspaceArchiveData",
         "type": "object"
       },
+      "backend__app__assessments__schemas__ModelProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Request Id"
+          },
+          "status": {
+            "enum": [
+              "MODEL_DISABLED",
+              "MODEL_NOT_CONFIGURED",
+              "MODEL_TIMEOUT",
+              "MODEL_RATE_LIMITED",
+              "MODEL_INVALID_RESPONSE",
+              "MODEL_UNAVAILABLE",
+              "MODEL_ASSISTED",
+              "MODEL_BUDGET_EXHAUSTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "request_id",
+          "status"
+        ],
+        "title": "ModelProvenance",
+        "type": "object"
+      },
       "backend__app__interviews__schemas__NewSession": {
         "additionalProperties": false,
         "properties": {
@@ -5503,6 +6234,30 @@
         "title": "TextTurnRequest",
         "type": "object"
       },
+      "backend__app__studio__feedback__ModelProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "request_id"
+        ],
+        "title": "ModelProvenance",
+        "type": "object"
+      },
       "backend__app__studio__routes__NewSession": {
         "additionalProperties": false,
         "properties": {
@@ -5674,7 +6429,7 @@
     "/api/v1/codebase-learning/audio/{filename}": {
       "get": {
         "description": "Serve synthesized mentor audio WAV file.",
-        "operationId": "serve_audio_api_v1_codebase_learning_audio__filename__get",
+        "operationId": "get_codebase_learning_audio",
         "parameters": [
           {
             "in": "path",
@@ -5682,6 +6437,89 @@
             "required": true,
             "schema": {
               "title": "Filename",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Serve Audio",
+        "tags": [
+          "codebase-learning"
+        ]
+      },
+      "head": {
+        "description": "Serve synthesized mentor audio WAV file.",
+        "operationId": "head_codebase_learning_audio",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "title": "Filename",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
               "type": "string"
             }
           }
@@ -5743,6 +6581,17 @@
               "title": "X-Workspace-Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5781,6 +6630,17 @@
               "maxLength": 128,
               "minLength": 1,
               "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
               "type": "string"
             }
           }
@@ -5844,6 +6704,17 @@
               "title": "X-Workspace-Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5886,6 +6757,17 @@
               "maxLength": 128,
               "minLength": 1,
               "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
               "type": "string"
             }
           }
@@ -5935,6 +6817,17 @@
               "maxLength": 128,
               "minLength": 1,
               "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
               "type": "string"
             }
           }
@@ -5999,6 +6892,17 @@
               "title": "X-Workspace-Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -6059,6 +6963,17 @@
               "maxLength": 128,
               "minLength": 1,
               "title": "X-Workspace-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Workspace-Token",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Workspace-Token",
               "type": "string"
             }
           }
@@ -6866,8 +7781,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response New Session Api V1 Learning Sessions Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/LearningSessionView"
                 }
               }
             },
@@ -6931,8 +7845,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Get Session Api V1 Learning Sessions  Session Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/LearningSessionView"
                 }
               }
             },
@@ -7006,8 +7919,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Answer Api V1 Learning Sessions  Session Id  Answers Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/LearningSessionView"
                 }
               }
             },
@@ -7081,8 +7993,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Hint Api V1 Learning Sessions  Session Id  Hints Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/LearningSessionView"
                 }
               }
             },
@@ -7156,8 +8067,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Restart Api V1 Learning Sessions  Session Id  Restart Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/LearningSessionView"
                 }
               }
             },
@@ -10609,7 +11519,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResult"
+                }
               }
             },
             "description": "Successful Response"

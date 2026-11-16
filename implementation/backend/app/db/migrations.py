@@ -30,8 +30,16 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def database_target(settings):
+    """Resolve app-selected storage; older test/worker settings remain compatible."""
+    return settings.database_target if hasattr(settings, 'database_target') else settings.database_path
+
+
 def open_connection(db_path: str | Path) -> sqlite3.Connection:
     """Open a SQLite connection configured with WAL mode and foreign key enforcement."""
+    from backend.app.db.postgres.runtime import PostgresTarget, Connection
+    if isinstance(db_path, PostgresTarget):
+        return Connection(db_path)
     target = str(db_path)
     if target != ":memory:" and not target.startswith("file:"):
         Path(target).parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +111,11 @@ def apply_migrations(
     migrations_dir: str | Path | None = None,
 ) -> list[str]:
     """Apply all pending SQL migrations atomically and return newly applied versions."""
+    from backend.app.db.postgres.runtime import PostgresTarget, initialize
+    if isinstance(db_path, PostgresTarget):
+        if migrations_dir is not None:
+            raise MigrationError('SQLite migration files cannot run on PostgreSQL.')
+        return initialize(db_path)
     resolved_dir = (
         Path(migrations_dir)
         if migrations_dir is not None

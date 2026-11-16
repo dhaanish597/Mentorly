@@ -1,3 +1,5 @@
+> Historical workstream record. Current integration and acceptance status: [production integration checkpoint](docs/engineering/PRODUCTION_INTEGRATION_CHECKPOINT_20261115.md). This document does not certify the current candidate.
+
 # Zero-cost deployment plan
 
 Status: design and audit only; no production services provisioned. Free usage and entitlement must be verified in the actual accounts before use. No paid billing, trial with payment details, or automatic charges are authorized.

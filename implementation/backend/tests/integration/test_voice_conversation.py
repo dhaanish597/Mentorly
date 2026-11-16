@@ -359,7 +359,7 @@ def test_model_reply_uses_current_words_and_is_reused_for_voice(conversation, mo
 
 
 def test_re_record_uses_new_transcript_and_preserves_actual_history(conversation, monkeypatch):
-    from backend.app.db.migrations import open_connection
+    from backend.app.db.migrations import database_target, open_connection
     first = conversation.client.post(f'/api/v1/sessions/{conversation.sid}/conversation/text',
         json=conversation.payload, headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
     assert first.status_code == 200
@@ -372,7 +372,7 @@ def test_re_record_uses_new_transcript_and_preserves_actual_history(conversation
         headers={**conversation.headers, 'X-Idempotency-Key': str(uuid4())})
     assert second.status_code == 200, second.text
     assert second.json()['text'] != first.json()['text']
-    with open_connection(conversation.app.state.settings.database_path) as db:
+    with open_connection(database_target(conversation.app.state.settings)) as db:
         rows = db.execute('SELECT learner_transcript FROM dsa_conversation_replies ORDER BY created_at').fetchall()
     assert [r[0] for r in rows] == [conversation.turn.normalized_transcript, turn.normalized_transcript]
 

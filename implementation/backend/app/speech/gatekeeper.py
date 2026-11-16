@@ -1,8 +1,8 @@
-"""Single-Concurrency Speech Gatekeeper & Durable Usage Ledger (`gatekeeper.py`).
+"""Attested-capacity Speech Gatekeeper & Durable Usage Ledger (`gatekeeper.py`).
 
 Implements Plan §8.6 / Phase 2 Prompt §B.6 & Fix P2-06:
-- Enforces `max_concurrency = 1` across all outbound Gnani STT and TTS requests via an
-  in-process `asyncio.Semaphore(1)` and bounded FIFO wait queue (`max_waiting = 10`,
+- Defaults to one slot across all outbound Gnani STT and TTS requests via an
+  in-process semaphore capped by separately attested entitlement and bounded FIFO wait queue (`max_waiting = 10`,
   `queue_wait_timeout_sec = 6.0`).
 - Phase 0 & Phase 2 SQLite Schema Compatibility:
   - Works seamlessly on both a brand-new `:memory:` / file SQLite DB AND an existing Phase 0
@@ -83,7 +83,7 @@ def accounted_speech_totals(conn: sqlite3.Connection) -> tuple[float, int]:
     """Global audio budgets count legacy, studio and common-module reservations."""
     seconds = 0.0
     chars = 0
-    for table in ('usage_reservations', 'studio_speech_usage', 'module_speech_usage'):
+    for table in ('usage_reservations', 'studio_speech_usage', 'module_speech_usage', 'codebase_speech_usage'):
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             continue
         row = conn.execute(f"SELECT COALESCE(SUM(stt_seconds),0),COALESCE(SUM(tts_chars),0) FROM {table} WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN')").fetchone()
@@ -98,7 +98,7 @@ def accounted_speech_totals(conn: sqlite3.Connection) -> tuple[float, int]:
 
 
 class SpeechGatekeeper:
-    """Single-concurrency dispatcher and durable SQLite usage ledger for Gnani Speech APIs."""
+    """Coordinator dispatcher and durable usage ledger; default entitlement is one."""
 
     def __init__(
         self,
@@ -106,6 +106,7 @@ class SpeechGatekeeper:
         *,
         db_path: Path | str = ":memory:",
         max_concurrency: int = 1,
+        verified_concurrency: int = 1,
         max_waiting: int = 10,
         queue_wait_timeout_sec: float = 25.0,
         max_stt_seconds_budget: float = 7200.0,
@@ -116,11 +117,12 @@ class SpeechGatekeeper:
         per_session_tts_chars: int | None = None,
         global_daily_call_limit: int | None = None,
     ) -> None:
-        if max_concurrency != 1:
-            raise ValueError("Gnani constraint requires max_concurrency == 1.")
+        if any(type(value) is not int or not 1 <= value <= 32 for value in (max_concurrency, verified_concurrency)):
+            raise ValueError("Gnani capacity must be an integer between 1 and 32.")
         self.adapter = adapter
-        self.db_path = str(db_path)
-        self.max_concurrency = 1
+        from backend.app.db.postgres.runtime import PostgresTarget
+        self.db_path = db_path if isinstance(db_path, PostgresTarget) else str(db_path)
+        self.max_concurrency = min(max_concurrency, verified_concurrency)
         self.max_waiting = max_waiting
         self.queue_wait_timeout_sec = queue_wait_timeout_sec
         self.max_stt_seconds_budget = max_stt_seconds_budget
@@ -131,7 +133,10 @@ class SpeechGatekeeper:
         self.per_session_tts_chars = per_session_tts_chars
         self.global_daily_call_limit = global_daily_call_limit
 
-        self._semaphore = asyncio.Semaphore(1)
+        self._semaphore = asyncio.Semaphore(self.max_concurrency)
+        self._account_dispatcher = None
+        self._shared_leases = {}
+        self._shared_dispatched = set()
         self._active_count = 0
         self._waiting_count = 0
         self._degradation = SpeechDegradationStatus.HEALTHY
@@ -139,6 +144,17 @@ class SpeechGatekeeper:
         self._cancelled_turns: set[tuple[str, int]] = set()
         self._db_lock = threading.RLock()
 
+        if isinstance(self.db_path, PostgresTarget):
+            from backend.app.db.migrations import open_connection
+            self._conn = open_connection(self.db_path)
+            account_key = getattr(adapter, '_explicit_api_key', None)
+            if account_key:
+                from backend.app.db.postgres.account_dispatch import AccountDispatcher
+                self._account_dispatcher = AccountDispatcher(self.db_path,
+                    account_key=account_key, capacity=self.max_concurrency)
+            # The complete checked-in PostgreSQL migration owns its schema.
+            # Never create SQLite-flavored tables or issue PRAGMAs here.
+            return
         if self.db_path != ":memory:" and not self.db_path.startswith("file:"):
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(
@@ -464,6 +480,8 @@ class SpeechGatekeeper:
                     day_count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM studio_speech_deleted_daily WHERE day=date(?)", (now_iso,)).fetchone()[0]
                 if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_usage'").fetchone():
                     day_count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM module_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (now_iso,)).fetchone()[0]
+                if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='codebase_speech_usage'").fetchone():
+                    day_count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM codebase_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (now_iso,)).fetchone()[0]
                 if ((self.per_session_stt_seconds is not None and session_usage[0]+est_stt_sec > self.per_session_stt_seconds)
                     or (self.per_session_tts_chars is not None and session_usage[1]+est_tts_chars > self.per_session_tts_chars)
                     or (self.global_daily_call_limit is not None and day_count + provider_calls > self.global_daily_call_limit)):
@@ -613,23 +631,75 @@ class SpeechGatekeeper:
                 f"Speech queue full ({self._waiting_count} waiting); falling back to text input."
             )
         self._waiting_count += 1
+        deadline = asyncio.get_running_loop().time() + self.queue_wait_timeout_sec
+        local_acquired = False
+        lease = None
         try:
             await asyncio.wait_for(
                 self._semaphore.acquire(),
                 timeout=self.queue_wait_timeout_sec,
             )
+            local_acquired = True
+            if self._account_dispatcher is not None:
+                while lease is None:
+                    # Shield DB admission so cancellation cannot orphan a lease
+                    # whose transaction completes after the awaiting task exits.
+                    admission = asyncio.create_task(asyncio.to_thread(self._account_dispatcher.reserve))
+                    try:
+                        lease = await asyncio.shield(admission)
+                    except asyncio.CancelledError:
+                        lease = await admission
+                        if lease is not None:
+                            self._account_dispatcher.finish(lease)
+                        lease = None
+                        raise
+                    if lease is None:
+                        if asyncio.get_running_loop().time() >= deadline:
+                            raise TimeoutError('Shared account dispatcher is busy.')
+                        await asyncio.sleep(0.05)
+                self._shared_leases[asyncio.current_task()] = lease
         except TimeoutError as exc:
             self._degradation = SpeechDegradationStatus.SPEECH_BUSY_TEXT_FALLBACK
             raise SpeechBusyError(
                 f"Timed out waiting {self.queue_wait_timeout_sec:.1f}s for single-concurrency speech slot."
             ) from exc
+        except BaseException:
+            if lease is not None and asyncio.current_task() not in self._shared_leases:
+                self._account_dispatcher.finish(lease)
+            raise
         finally:
             self._waiting_count -= 1
+            if local_acquired and (self._account_dispatcher is not None and asyncio.current_task() not in self._shared_leases):
+                self._semaphore.release()
         self._active_count += 1
 
-    def _release_single_slot(self) -> None:
+    def _release_single_slot(self, *, uncertain: bool = False) -> None:
+        task = asyncio.current_task()
+        lease = self._shared_leases.pop(task, None)
+        was_dispatched = task in self._shared_dispatched
+        self._shared_dispatched.discard(task)
+        if lease is not None:
+            try:
+                self._account_dispatcher.finish(lease, uncertain=uncertain and was_dispatched)
+            except Exception:
+                # The row remains occupied; another worker must not reuse it.
+                self._degradation = SpeechDegradationStatus.SPEECH_BUSY_TEXT_FALLBACK
+                import logging
+                logging.getLogger(__name__).warning('Shared provider slot settlement remains uncertain.')
         self._active_count = max(0, self._active_count - 1)
         self._semaphore.release()
+
+    def mark_provider_dispatch(self) -> None:
+        """Fence immediately before physical provider dispatch, after freshness checks."""
+        task = asyncio.current_task()
+        lease = self._shared_leases.get(task)
+        if lease is not None and task not in self._shared_dispatched:
+            self._account_dispatcher.start(lease)
+            self._shared_dispatched.add(task)
+
+    def mark_provider_complete(self) -> None:
+        """A returned/closed provider response resolves slot lifetime before CAS publish."""
+        self._shared_dispatched.discard(asyncio.current_task())
 
     def _reserve_retry_calls(self, reservation_id: str, total_calls: int) -> None:
         """Re-admit physical retries atomically against the shared daily call budget."""
@@ -643,6 +713,8 @@ class SpeechGatekeeper:
                     count += self._conn.execute('SELECT COALESCE(SUM(request_count),0) FROM studio_speech_deleted_daily WHERE day=date(?)', (today,)).fetchone()[0]
                 if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='module_speech_usage'").fetchone():
                     count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM module_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (today,)).fetchone()[0]
+                if self._conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='codebase_speech_usage'").fetchone():
+                    count += self._conn.execute("SELECT COALESCE(SUM(request_count),0) FROM codebase_speech_usage WHERE status IN ('RESERVED','COMMITTED','UNCERTAIN') AND date(created_at)=date(?)", (today,)).fetchone()[0]
                 if self.global_daily_call_limit is not None and count + total_calls > self.global_daily_call_limit:
                     raise SpeechQuotaExhaustedError('Speech retry would exceed the daily budget; continue with text.')
                 self._conn.execute('UPDATE usage_reservations SET request_count=? WHERE id=?', (total_calls, reservation_id))
@@ -700,6 +772,7 @@ class SpeechGatekeeper:
                     if assert_current is not None:
                         assert_current()
                     dispatched = True
+                    self.mark_provider_dispatch()
                     physical_calls += 1
                     result = await (transcribe_fn or self.adapter.transcribe_rest)(
                         req, wav_bytes
@@ -721,7 +794,7 @@ class SpeechGatekeeper:
                     if exc.status_code is not None:
                         dispatched = False  # Known rejection, not unknown billed audio.
                     if (
-                        (exc.status_code == 429 or exc.retryable or (exc.status_code is not None and exc.status_code in _RETRYABLE_HTTP_STATUS_CODES))
+                        exc.status_code == 429
                         and attempt < self.max_429_retries
                     ):
                         self._reserve_retry_calls(res_id, physical_calls + 1)
@@ -759,7 +832,7 @@ class SpeechGatekeeper:
             raise
         finally:
             if slot_acquired:
-                self._release_single_slot()
+                self._release_single_slot(uncertain=uncertain)
             self._finalize_reservation(
                 res_id,
                 session_id=req.session_id,
@@ -810,6 +883,8 @@ class SpeechGatekeeper:
                     if assert_current is not None:
                         assert_current()
                     dispatched = cached is None
+                    if dispatched:
+                        self.mark_provider_dispatch()
                     kwargs = {
                         "is_cancelled": lambda: (
                             (req.session_id, req.turn_generation)
@@ -837,7 +912,7 @@ class SpeechGatekeeper:
                     if exc.status_code is not None and exc.completed_chars == 0 and not exc.audio_emitted:
                         dispatched = False
                     if (
-                        (exc.status_code == 429 or exc.retryable or (exc.status_code is not None and exc.status_code in _RETRYABLE_HTTP_STATUS_CODES))
+                        exc.status_code == 429
                         and exc.completed_chars == 0
                         and not exc.audio_emitted
                         and attempt < self.max_429_retries
@@ -880,7 +955,7 @@ class SpeechGatekeeper:
             raise
         finally:
             if slot_acquired:
-                self._release_single_slot()
+                self._release_single_slot(uncertain=uncertain)
             self._finalize_reservation(
                 res_id,
                 session_id=req.session_id,

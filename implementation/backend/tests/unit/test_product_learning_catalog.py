@@ -17,7 +17,7 @@ def test_versioned_catalog_and_all_verified_question_answers():
     from backend.app.learning.catalog import evaluate_answer, public_catalog
     value = curriculum()
     validate(value)
-    assert public_catalog(value)['version'] == '1.0.0'
+    assert public_catalog(value)['version'] == '1.1.0'
     for track in value['tracks']:
         for lesson in track['lessons']:
             question = lesson['question']

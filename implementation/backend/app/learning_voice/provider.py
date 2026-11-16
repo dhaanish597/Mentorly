@@ -82,10 +82,12 @@ async def run(
                 reservation_id = await admission
                 raise
             await check()
+            request.app.state.speech.gatekeeper.mark_provider_dispatch()
             result = await asyncio.wait_for(
                 _await_connected_voice(request, dispatch()),
                 timeout=PROVIDER_DEADLINE_SECONDS,
             )
+            request.app.state.speech.gatekeeper.mark_provider_complete()
             status = "COMMITTED"
             await check()
             return result

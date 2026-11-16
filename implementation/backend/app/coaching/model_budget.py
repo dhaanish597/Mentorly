@@ -9,7 +9,7 @@ from backend.app.db.repository import RevisionConflictError
 
 def daily_count(db, timestamp):
     total = 0
-    for scope in ('studio', 'dsa', 'assessment', 'legacy'):
+    for scope in ('studio', 'dsa', 'assessment', 'legacy', 'codebase'):
         usage, deleted = f'{scope}_model_usage', f'{scope}_model_deleted_daily'
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (usage,)).fetchone():
             total += db.execute(f'SELECT count(*) FROM {usage} WHERE date(created_at)=date(?)',(timestamp,)).fetchone()[0]

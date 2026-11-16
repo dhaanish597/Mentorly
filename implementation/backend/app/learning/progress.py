@@ -176,7 +176,7 @@ def progress_snapshot(conn: sqlite3.Connection, workspace_id: str) -> dict[str, 
     ).fetchall()
     completed = {row["lesson_id"] for row in completed_rows}
     totals = conn.execute(
-        "SELECT COALESCE(SUM(kind='answer.evaluated'),0) attempts,COALESCE(SUM(kind='session.started'),0) sessions,COALESCE(SUM(study_seconds),0) seconds FROM learning_events WHERE workspace_id=?",
+        "SELECT COALESCE(SUM(CASE WHEN kind='answer.evaluated' THEN 1 ELSE 0 END),0) attempts,COALESCE(SUM(CASE WHEN kind='session.started' THEN 1 ELSE 0 END),0) sessions,COALESCE(SUM(study_seconds),0) seconds FROM learning_events WHERE workspace_id=?",
         (workspace_id,),
     ).fetchone()
     activity = conn.execute(

@@ -65,7 +65,10 @@ class TTSDiskCache:
         for directory in (self.public_dir, self.sessions_dir):
             if directory.is_symlink():
                 raise ValueError("Cache directories must not be symlinks")
-            directory.mkdir(parents=True, exist_ok=True)
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                _LOGGER.warning("Audio cache storage is unavailable; synthesis remains uncached")
 
     @staticmethod
     def compute_cache_key(
@@ -131,13 +134,13 @@ class TTSDiskCache:
         """Return cached WAV bytes if a complete, valid entry exists, else `None`."""
         with self._lock:
             path = self._target_path(cache_key, scope=scope, session_id=session_id)
-            if not path.is_file():
-                return None
-            stat = path.stat()
-            if stat.st_mtime < time.time() - self.max_age_seconds or stat.st_size > self.max_bytes:
-                path.unlink()
-                return None
             try:
+                if not path.is_file():
+                    return None
+                stat = path.stat()
+                if stat.st_mtime < time.time() - self.max_age_seconds or stat.st_size > self.max_bytes:
+                    path.unlink()
+                    return None
                 data = path.read_bytes()
                 inspect_and_validate_tts_wav(data, expected_sample_rate_hz=expected_sample_rate_hz)
             except (OSError, AudioValidationError):
@@ -187,16 +190,21 @@ class TTSDiskCache:
             return final_wav
         with self._lock:
             target = self._target_path(cache_key, scope=scope, session_id=session_id)
-            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             tmp_path = target.with_name(f".{cache_key}.tmp.{uuid.uuid4().hex[:8]}")
             try:
+                target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 descriptor = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(descriptor, "wb") as file:
                     file.write(final_wav)
                 os.replace(tmp_path, target)
                 self.enforce_limits()
+            except OSError:
+                _LOGGER.warning("Completed audio delivered without caching; cache storage is unavailable")
             finally:
-                tmp_path.unlink(missing_ok=True)
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    _LOGGER.warning("Audio cache temporary cleanup requires maintenance")
         return final_wav
 
     def enforce_limits(self) -> int:

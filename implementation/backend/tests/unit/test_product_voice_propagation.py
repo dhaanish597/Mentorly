@@ -64,14 +64,26 @@ def test_product_voice_studio_disconnect_cancels_provider_and_keeps_uncertain_us
     from backend.app.studio import speech
     statuses=[]
     cancelled=[]
+    provider_markers=[]
     @asynccontextmanager
     async def slot(req):
-        yield
+        try:
+            yield
+        finally:
+            assert cancelled==[True], 'Provider cancellation must finish before slot release'
     monkeypatch.setattr(speech,'speech_slot',slot)
     monkeypatch.setattr(speech,'reserve',lambda *args:'reserved')
     monkeypatch.setattr(speech,'settle',lambda req,rid,status:statuses.append(status))
     async def disconnected():
         return True
+    gate=SimpleNamespace(
+        mark_provider_dispatch=lambda:provider_markers.append('DISPATCHED'),
+        mark_provider_complete=lambda:provider_markers.append('COMPLETE'),
+    )
+    request=SimpleNamespace(
+        is_disconnected=disconnected,
+        app=SimpleNamespace(state=SimpleNamespace(speech=SimpleNamespace(gatekeeper=gate))),
+    )
     async def dispatch():
         try:
             await asyncio.Event().wait()
@@ -81,11 +93,12 @@ def test_product_voice_studio_disconnect_cancels_provider_and_keeps_uncertain_us
     async def scenario():
         started=asyncio.get_running_loop().time()
         with pytest.raises(HTTPException) as failure:
-            await asyncio.wait_for(speech.run_provider(SimpleNamespace(is_disconnected=disconnected),'session','token',1,'idem-key','TTS','digest',0,5,1,dispatch,lambda:None),timeout=1)
+            await asyncio.wait_for(speech.run_provider(request,'session','token',1,'idem-key','TTS','digest',0,5,1,dispatch,lambda:None),timeout=1)
         assert failure.value.status_code==409
         assert asyncio.get_running_loop().time()-started < .5
     asyncio.run(scenario())
     assert cancelled==[True]
+    assert provider_markers==['DISPATCHED']
     assert statuses==['UNCERTAIN']
 
 

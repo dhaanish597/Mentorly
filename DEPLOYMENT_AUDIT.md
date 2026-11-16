@@ -1,3 +1,5 @@
+> Historical workstream record. Current integration and acceptance status: [production integration checkpoint](docs/engineering/PRODUCTION_INTEGRATION_CHECKPOINT_20261115.md). This document does not certify the current candidate.
+
 # Zero-cost deployment audit
 
 Audit date: 2026-11-15 (Asia/Kolkata). This is an inspection of the existing checkout, not a release attestation. Live cloud and acceptance results are recorded separately in DEPLOYMENT_STATUS.md.

@@ -1,4 +1,5 @@
 """Studio capability API; mutations are serialized with SQLite transactions."""
+from backend.app.db.migrations import database_target
 import asyncio
 import hashlib
 import hmac
@@ -33,7 +34,7 @@ def ident(value):
     except ValueError: err(422, 'Expected UUID')
 
 def token(header): return header[7:] if header.startswith('Bearer ') else ''
-def connection(req): return open_connection(req.app.state.settings.database_path)
+def connection(req): return open_connection(database_target(req.app.state.settings))
 
 def auth(conn, sid, header):
     row = conn.execute('SELECT * FROM studio_sessions WHERE id=?', (sid,)).fetchone()
@@ -211,7 +212,7 @@ def snapshot(req: Request,sid: str,authorization: str = Header(default='')):
         events=[dict(r) for r in conn.execute('SELECT sequence,event_type,payload_json,created_at FROM studio_events WHERE session_id=? ORDER BY sequence',(sid,))]
         turns=[dict(r) for r in conn.execute('SELECT id,epoch,diagram_revision,kind,content,created_at,transcript_revision,superseded_by FROM studio_turns WHERE session_id=? ORDER BY created_at,id',(sid,))]
         from backend.app.repo_learning.service import repo_session_summary
-        repo_summary=repo_session_summary(req.app.state.settings.database_path,s['workspace_id'],sid) if s['repo_snapshot_id'] else None
+        repo_summary=repo_session_summary(database_target(req.app.state.settings),s['workspace_id'],sid) if s['repo_snapshot_id'] else None
         phase=next((json.loads(e['payload_json'])['phase'] for e in reversed(events) if 'phase' in json.loads(e['payload_json'])),'clarify')
         return {'phase':phase,'repo_summary':repo_summary,'session_id':sid,'workspace_id':s['workspace_id'],'mode':s['mode'],'posture':s['posture'],'scenario_id':s['scenario_id'],'scenario_version':s['scenario_version'],'repo_snapshot_id':s['repo_snapshot_id'],'epoch':s['epoch'],'diagram_revision':s['diagram_revision'],'state':s['state'],'scenario_hash':s['scenario_hash'],'constraint_index':s['constraint_index'],'hint_level':s['hint_level'],'expires_at':s['expires_at'],'deadline_at':s['deadline_at'],'remaining_seconds':s['remaining_seconds'],'graph':graph,'turns':turns,'events':[{'sequence':e['sequence'],'type':e['event_type'],'payload':json.loads(e['payload_json']),'created_at':e['created_at']} for e in events]}
 
@@ -375,7 +376,7 @@ def summary(req: Request,sid: str,authorization: str = Header(default='')):
         s=auth(conn,sid,authorization)
         count=conn.execute('SELECT count(*) FROM studio_turns WHERE session_id=? AND superseded_by IS NULL',(sid,)).fetchone()[0]
         dimensions=('algorithm_correctness','architecture_reasoning','codebase_comprehension','technical_communication')
-        assisted=conn.execute("SELECT count(*) FROM studio_events WHERE session_id=? AND json_extract(payload_json,'$.assistance')=1",(sid,)).fetchone()[0]
+        assisted=conn.execute("SELECT count(*) FROM studio_events WHERE session_id=? AND CAST(json_extract(payload_json,'$.assistance') AS TEXT) IN ('1','true')",(sid,)).fetchone()[0]
         from backend.app.studio.turns import latest_feedback
         feedback=latest_feedback(conn,s) if s['posture']!='assessment' or s['state']=='completed' else {}
         criteria=feedback.get('criteria',[])
@@ -469,6 +470,10 @@ def delete_workspace(req: Request,wid: str,authorization: str = Header(default='
         row=conn.execute('SELECT * FROM studio_workspaces WHERE id=?',(wid,)).fetchone()
         if not row or row['deleted_at']: err(410,'Workspace unavailable')
         ids=[r['id'] for r in conn.execute('SELECT id FROM studio_sessions WHERE workspace_id=?',(wid,))]
+        from backend.app.db.repository import tombstone_session_in_connection
+        linked=[r['session_id'] for r in conn.execute('SELECT session_id FROM workspace_dsa_sessions WHERE workspace_id=?',(wid,))]
+        for linked_id in linked:
+            tombstone_session_in_connection(conn, linked_id)
         conn.execute('UPDATE studio_workspaces SET deleted_at=? WHERE id=?',(iso(),wid))
         conn.execute('UPDATE studio_sessions SET deleted_at=?,epoch=epoch+1 WHERE workspace_id=?',(iso(),wid))
         for sid in ids:
@@ -485,7 +490,7 @@ def delete_workspace(req: Request,wid: str,authorization: str = Header(default='
         return {'deleted':True}
     from backend.app.repo_learning.lifecycle import cancel_workspace
     return mutation(req,wid,x_idempotency_key,{},act,
-                    on_commit=lambda _: cancel_workspace(req.app.state.settings.database_path,wid))
+                    on_commit=lambda _: cancel_workspace(database_target(req.app.state.settings),wid))
 
 @router.get('/sessions/{sid}/scenario')
 def current_scenario(req: Request,sid: str,authorization: str = Header(default='')):

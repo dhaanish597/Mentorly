@@ -3,27 +3,36 @@
 from __future__ import annotations
 
 import base64
+from contextlib import closing
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.core.config import get_request_settings as get_settings
+from backend.app.db.migrations import database_target, open_connection
 from backend.app.repo_learning.mentor_service import CodebaseMentorService
-
-router = APIRouter(prefix="/codebase-learning", tags=["codebase-learning"])
+from backend.app.repo_learning.audio_storage import get_audio
+from backend.app.studio.security import authenticate_workspace
 
 WorkspaceId = Annotated[str, Header(alias="X-Workspace-Id", min_length=1, max_length=128)]
 WorkspaceToken = Annotated[str, Header(alias="X-Workspace-Token", min_length=1, max_length=128)]
 
 
+def _authorize(request: Request, workspace: WorkspaceId, token: WorkspaceToken) -> None:
+    authenticate_workspace(request, workspace, token)
+
+
+router = APIRouter(prefix="/codebase-learning", tags=["codebase-learning"], dependencies=[Depends(_authorize)])
+
+
 def _get_service(request: Request) -> CodebaseMentorService:
     settings = get_settings()
     return CodebaseMentorService(
-        db_path=settings.database_path,
+        db_path=database_target(settings),
         tts_cache_dir=settings.tts_cache_dir,
+        request=request,
     )
 
 
@@ -63,8 +72,10 @@ async def list_sessions(
     try:
         sessions = await service.list_sessions(x_workspace_id, query=q)
         return {"sessions": sessions}
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(500, f"Failed to list learning sessions: {exc}") from exc
+        raise HTTPException(500, "Failed to list learning sessions.") from exc
 
 
 @router.post("/sessions", status_code=201)
@@ -89,8 +100,10 @@ async def create_session(
         return session
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(500, f"Failed to create learning session: {exc}") from exc
+        raise HTTPException(500, "Failed to create learning session.") from exc
 
 
 @router.get("/sessions/{session_id}")
@@ -104,8 +117,10 @@ async def get_session(
         return await service.get_session(x_workspace_id, session_id)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(500, f"Failed to retrieve learning session: {exc}") from exc
+        raise HTTPException(500, "Failed to retrieve learning session.") from exc
 
 
 @router.patch("/sessions/{session_id}")
@@ -159,8 +174,10 @@ async def submit_text_turn(
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(500, f"Turn reasoning failed: {exc}") from exc
+        raise HTTPException(500, "Turn reasoning failed.") from exc
 
 
 @router.post("/sessions/{session_id}/voice-turn")
@@ -200,23 +217,25 @@ async def submit_voice_turn(
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(500, f"Voice turn failed: {exc}") from exc
+        raise HTTPException(500, "Voice turn failed.") from exc
 
 
-@router.api_route("/audio/{filename}", methods=["GET", "HEAD"])
-async def serve_audio(filename: str, request: Request):
+@router.get("/audio/{filename}", operation_id="get_codebase_learning_audio")
+@router.head("/audio/{filename}", operation_id="head_codebase_learning_audio")
+async def serve_audio(filename: str, request: Request, x_workspace_id: WorkspaceId):
     """Serve synthesized mentor audio WAV file."""
     settings = get_settings()
-    file_path = (settings.tts_cache_dir / filename).resolve()
-    # Check bounds
-    if not file_path.is_file() or not str(file_path).startswith(str(settings.tts_cache_dir.resolve())):
+    if Path(filename).name != filename:
         raise HTTPException(404, "Audio file not found")
-    return FileResponse(
-        file_path,
+    with closing(open_connection(database_target(settings))) as conn:
+        audio = get_audio(conn, x_workspace_id, filename)
+    if audio is None:
+        raise HTTPException(404, "Audio file not found")
+    return Response(
+        content=b"" if request.method == "HEAD" else audio,
         media_type="audio/wav",
-        headers={
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=3600",
-        },
+        headers={"Cache-Control": "private, no-store", "Content-Length": str(len(audio))},
     )

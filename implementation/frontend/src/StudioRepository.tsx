@@ -51,10 +51,14 @@ const citationOf = ({ path, symbol, start_line, end_line, chunk_hash }: SearchHi
 const isDoc = (path: string) => /\.(md|rst|txt)$/i.test(path);
 const sameCitation = (left: Citation, right: Citation) => left.path === right.path && left.chunk_hash === right.chunk_hash && left.start_line === right.start_line && left.end_line === right.end_line;
 
-export function RepositoryPanel({ workspace, ensureWorkspace, onSnapshot, session, speechEpoch = 1, speechEvents = [], boundSnapshotId, onSessionChange, active: panelActive = true, mentorMode = false }: RepositoryPanelProps) {
-  if (mentorMode) {
-    return <CodebaseLearningView workspace={workspace} ensureWorkspace={ensureWorkspace} active={panelActive} />;
+export function RepositoryPanel(props: RepositoryPanelProps) {
+  if (props.mentorMode) {
+    return <CodebaseLearningView workspace={props.workspace} ensureWorkspace={props.ensureWorkspace} active={props.active ?? true} />;
   }
+  return <RepositoryExplorer {...props} />;
+}
+
+function RepositoryExplorer({ workspace, ensureWorkspace, onSnapshot, session, speechEpoch = 1, speechEvents = [], boundSnapshotId, onSessionChange, active: panelActive = true }: RepositoryPanelProps) {
   const activeBoundSnapshotId = session ? boundSnapshotId ?? null : null;
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [explorationImport, setExplorationImport] = useState<Snapshot | null>(null);

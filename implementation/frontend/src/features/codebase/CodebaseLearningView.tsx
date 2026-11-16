@@ -61,7 +61,7 @@ export function CodebaseLearningView({
     return () => {
       alive = false;
     };
-  }, [workspace?.id]);
+  }, [workspace]);
 
   async function handleRefreshSessions() {
     if (!activeWorkspace) return;

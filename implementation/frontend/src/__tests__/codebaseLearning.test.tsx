@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CodebaseOnboarding } from '../features/codebase/CodebaseOnboarding';
 import { CodebaseSessionHistory } from '../features/codebase/CodebaseSessionHistory';
 import { CodebaseVoiceWorkspace } from '../features/codebase/CodebaseVoiceWorkspace';
@@ -173,6 +173,78 @@ describe('CodebaseOnboarding Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start learning/i }));
 
     await screen.findByText(/Please provide a valid GitHub repository URL/i);
+  });
+
+  it('reuses the snapshot and idempotency key after a lost creation response', async () => {
+    const attempts: { key: string; snapshot: string }[] = [];
+    let ingests = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/repos/ingest')) {
+        ingests++;
+        return new Response(JSON.stringify({ snapshot_id: 's1', status: 'READY' }), { status: 200 });
+      }
+      if (String(url).includes('/codebase-learning/sessions')) {
+        const headers = init?.headers as Record<string, string>;
+        expect(headers['Idempotency-Key']).toBe(headers['X-Idempotency-Key']);
+        attempts.push({ key: headers['Idempotency-Key'], snapshot: JSON.parse(String(init?.body)).snapshot_id });
+        if (attempts.length === 1) throw new Error('Response lost');
+        return new Response(JSON.stringify({ detail: 'Session creation already admitted' }), { status: 409 });
+      }
+      throw new Error('Unexpected request');
+    }));
+    const view = render(<CodebaseOnboarding workspace={mockWorkspace} onSessionReady={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repository'), { target: { value: 'https://github.com/tiangolo/fastapi' } });
+    fireEvent.click(screen.getByRole('button', { name: /Start learning/i }));
+    await screen.findByText('Response lost');
+    expect(sessionStorage.getItem('viva-codebase-pending-v1')).not.toContain(mockWorkspace.token);
+    view.unmount();
+    render(<CodebaseOnboarding workspace={mockWorkspace} onSessionReady={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repository'), { target: { value: 'https://github.com/tiangolo/fastapi' } });
+    fireEvent.click(screen.getByRole('button', { name: /Start learning/i }));
+    await waitFor(() => expect(attempts).toHaveLength(2));
+    expect(ingests).toBe(1);
+    expect(attempts[0]).toEqual(attempts[1]);
+    expect(attempts[0].snapshot).toBe('s1');
+    expect(attempts[0].key).toBeTruthy();
+  });
+
+  it('ignores a session response after the workspace changes', async () => {
+    let resolveCreate!: (value: Response) => void;
+    const createResponse = new Promise<Response>((resolve) => { resolveCreate = resolve; });
+    const onSessionReady = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/repos/ingest')) return new Response(JSON.stringify({ snapshot_id: 'rotate-snapshot', status: 'READY' }), { status: 200 });
+      return createResponse;
+    }));
+    const view = render(<CodebaseOnboarding workspace={mockWorkspace} onSessionReady={onSessionReady} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repository'), { target: { value: 'https://github.com/example/rotate' } });
+    fireEvent.click(screen.getByRole('button', { name: /Start learning/i }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    view.rerender(<CodebaseOnboarding workspace={{ id: 'other', token: 'other-token' }} onSessionReady={onSessionReady} />);
+    await act(async () => { resolveCreate(new Response(JSON.stringify(sampleSession), { status: 200 })); await createResponse; });
+    expect(onSessionReady).not.toHaveBeenCalled();
+  });
+
+  it('does not let an older completion clear a newer attempt for the same repository', async () => {
+    let resolveFirst!: (response: Response) => void;
+    const firstResponse = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    let creations = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/repos/ingest')) return new Response(JSON.stringify({ snapshot_id: 's1', status: 'READY' }), { status: 200 });
+      creations++;
+      if (creations === 1) return firstResponse;
+      throw new Error('Response lost');
+    }));
+    render(<CodebaseOnboarding workspace={mockWorkspace} onSessionReady={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repository'), { target: { value: 'https://github.com/example/repo' } });
+    fireEvent.click(screen.getByRole('button', { name: /Start learning/i }));
+    await waitFor(() => expect(creations).toBe(1));
+    // Another attempt replaced the original record while its response was in flight.
+    const stored = JSON.parse(sessionStorage.getItem('viva-codebase-pending-v1')!);
+    sessionStorage.setItem('viva-codebase-pending-v1', JSON.stringify({ ...stored, key: 'newer-attempt' }));
+    const newer = sessionStorage.getItem('viva-codebase-pending-v1');
+    await act(async () => { resolveFirst(new Response(JSON.stringify(sampleSession), { status: 200 })); await firstResponse; });
+    expect(sessionStorage.getItem('viva-codebase-pending-v1')).toBe(newer);
   });
 
   it('orchestrates ingestion and session creation on valid URL', async () => {

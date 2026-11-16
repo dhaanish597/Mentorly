@@ -1,3 +1,5 @@
+> Historical workstream record. Current integration and acceptance status: [production integration checkpoint](docs/engineering/PRODUCTION_INTEGRATION_CHECKPOINT_20261115.md). This document does not certify the current candidate.
+
 # Deployment runbook (preparation only)
 
 No deployment is currently approved by technical acceptance, and no commands here assert one exists. Do not enable paid billing, supply payment details, or expose custom execution before the gates below pass.

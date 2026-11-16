@@ -109,6 +109,7 @@ describe('Integrated workbench', () => {
     expect(screen.getByRole('textbox', { name: 'Editable Learner Transcript' })).toHaveValue('unsaved reasoning');
     openTranscript();
     expect(screen.getByRole('textbox', { name: 'Editable Learner Transcript' })).toHaveValue('unsaved reasoning');
+    expect(screen.getByText('Unsent draft')).toBeInTheDocument();
     expect(screen.queryByTestId('confirm-claim-btn')).not.toBeInTheDocument();
   });
   it('recreates playable voice resources after StrictMode cleanup', async () => {

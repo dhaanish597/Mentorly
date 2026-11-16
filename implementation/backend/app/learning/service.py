@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+from backend.app.assessments.review import digest, explanation_review, initial_review
+from backend.app.assessments.schemas import SemanticReview
 from backend.app.studio.routes import auth_workspace_row
 from fastapi import HTTPException
 
@@ -245,6 +247,9 @@ def answer_session(
     expected_epoch: int,
     question_id: str,
     answer: str,
+    explanation: str | None = None,
+    semantic_review: SemanticReview | None = None,
+    selected_option_id: str | None = None,
 ) -> dict[str, Any]:
     row = owned_session(conn, workspace_id, sid)
     require_epoch(row, expected_epoch)
@@ -254,7 +259,23 @@ def answer_session(
         raise HTTPException(409, "Question does not match the pinned lesson")
     if row["answer_count"] >= MAX_ANSWERS:
         raise HTTPException(409, "Answer limit reached")
-    feedback = evaluate_answer(lesson["question"], answer)
+    feedback = evaluate_answer(lesson["question"], answer, selected_option_id)
+    if explanation:
+        semantic_review = semantic_review or initial_review(
+            {"question": lesson["question"]["prompt"], "answer": explanation},
+            expected_epoch,
+            "MODEL_DISABLED",
+        )
+        if (
+            semantic_review.reviewed_answer_revision != expected_epoch
+            or semantic_review.answer_sha256 != digest(explanation)
+        ):
+            raise HTTPException(
+                409, "Explanation review belongs to a different answer revision"
+            )
+        feedback["explanation_review"] = explanation_review(
+            semantic_review
+        ).model_dump()
     timestamp, answer_id = utc_now(), str(uuid.uuid4())
     conn.execute(
         "INSERT INTO learning_answers(id,session_id,workspace_id,run,epoch,question_id,answer,correct,evaluation_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -271,6 +292,11 @@ def answer_session(
             timestamp,
         ),
     )
+    if explanation:
+        conn.execute(
+            "INSERT INTO learning_explanation_reviews VALUES(?,?,?)",
+            (answer_id, explanation, encode(feedback["explanation_review"])),
+        )
     count = row["answer_count"] + 1
     state = (
         "completed"
@@ -286,6 +312,7 @@ def answer_session(
             else "Objective answer not verified; no completion or mastery awarded."
         ),
         "explanation_rubric": lesson["explanation_rubric"],
+        "explanation_review": feedback.get("explanation_review"),
     }
     messages = json.loads(row["coach_messages_json"]) + [
         message("feedback", feedback["message"])

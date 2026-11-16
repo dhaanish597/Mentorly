@@ -63,12 +63,17 @@ def observe(answer: str, indicator_ids: list[str]) -> list[dict]:
 def next_probe(
     question: dict, answer: str, prompts: dict[str, str], fallback: str
 ) -> dict:
-    observations = observe(answer, question["indicator_ids"])
-    missing = next((x["id"] for x in observations if x["value"] == 0), None)
+    # With no model interpretation, ask for elaboration without pretending that
+    # a missing keyword establishes missing reasoning. Lexical cues remain only
+    # end-of-interview diagnostics. The verbatim quote ties the question to what
+    # was actually said, including negation and code-mixed identifiers.
+    brief = len(answer.split()) < 8
+    prompt = prompts.get("reasoning_marker", fallback) if brief else fallback
+    excerpt = answer.strip()[:160]
     return {
         **question,
         "kind": "followup",
         "parent_id": question["id"],
-        "text": prompts.get(missing, fallback),
-        "probe_target": missing or "depth",
+        "text": f'You described: “{excerpt}”. {prompt}',
+        "probe_target": "elaboration" if brief else "depth",
     }

@@ -371,7 +371,7 @@ class SpeechCapacityStatus(_StrictDTO):
     deployment_topology: Literal["SINGLE_PROCESS_LOCAL_SEMAPHORE"] = (
         "SINGLE_PROCESS_LOCAL_SEMAPHORE"
     )
-    max_concurrency: StrictInt = Field(default=1, ge=1, le=1)
+    max_concurrency: StrictInt = Field(default=1, ge=1, le=32)
     active_requests: StrictInt = Field(ge=0)
     queued_requests: StrictInt = Field(ge=0)
     max_waiting: StrictInt = Field(ge=1)

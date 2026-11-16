@@ -66,7 +66,7 @@ def test_catalog_public_substantive_and_no_answer_keys(learning):
     response = client.get('/api/v1/learning/catalog')
     assert response.status_code == 200
     catalog = response.json()
-    assert catalog['version'] == '1.0.0'
+    assert catalog['version'] == '1.1.0'
     assert {t['module'] for t in catalog['tracks']} == {'dsa', 'cs', 'aptitude', 'system_design'}
     lessons = [l for t in catalog['tracks'] for l in t['lessons']]
     assert len(lessons) >= 40
@@ -78,7 +78,10 @@ def test_catalog_public_substantive_and_no_answer_keys(learning):
         assert len(lesson['example']) >= 70
         assert len(lesson['objectives']) >= 2
         assert len(lesson['hints']) == 3
-        assert set(lesson['question']) == {'id', 'prompt', 'options'}
+        assert set(lesson['question']) == {'id', 'prompt', 'options', 'option_ids', 'response_kind'}
+        assert lesson['question']['response_kind'] == 'multiple_choice'
+        assert len(lesson['question']['option_ids']) == len(lesson['question']['options'])
+        assert len(set(lesson['question']['option_ids'])) == len(lesson['question']['option_ids'])
     assert 'correct_answer' not in response.text and 'accepted_answers' not in response.text
     assert any(l['practice_url'].startswith('/practice/') for l in lessons)
     assert any(l['practice_url'].startswith('/studio?') for l in lessons)

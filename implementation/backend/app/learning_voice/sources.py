@@ -1,6 +1,7 @@
 """Read only authored, persisted public speech text from the owned current source."""
 
 from __future__ import annotations
+from backend.app.db.migrations import database_target
 
 import hashlib
 import json
@@ -80,7 +81,7 @@ def _redrive_source(
 
     try:
         plan = get_plan(
-            request.app.state.settings.database_path,
+            database_target(request.app.state.settings),
             capability.workspace_id,
             session_id,
         )
@@ -168,7 +169,7 @@ def current(
     expected: Source | None = None,
 ) -> Source:
     authenticate_workspace(request, capability.workspace_id, capability.token)
-    with closing(open_connection(request.app.state.settings.database_path)) as db:
+    with closing(open_connection(database_target(request.app.state.settings))) as db:
         source = resolve(db, request, capability, module, session_id, epoch, message_id)
     if expected is not None and source != expected:
         raise HTTPException(409, "Voice source content superseded")

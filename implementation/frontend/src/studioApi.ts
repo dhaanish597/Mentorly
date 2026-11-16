@@ -11,13 +11,17 @@ export type TurnCorrectionRequest = Omit<components['schemas']['TurnCorrection']
 export type Graph = { nodes: StudioNode[]; edges: StudioEdge[]; assumptions: Record<string, unknown> };
 export class StudioError extends Error { constructor(public status: number, message: string) { super(message); } }
 export function capability(): string { return `${crypto.randomUUID()}${crypto.randomUUID()}`; }
-export async function studioRequest<T>(path: string, options: { method?: string; token?: string; body?: unknown; signal?: AbortSignal; workspace?: Workspace; sessionToken?: string } = {}): Promise<T> {
+export async function studioRequest<T>(path: string, options: { method?: string; token?: string; body?: unknown; signal?: AbortSignal; workspace?: Workspace; sessionToken?: string; idempotencyKey?: string } = {}): Promise<T> {
   const method = options.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   if (options.sessionToken) headers['X-Session-Token'] = options.sessionToken;
   if (options.workspace) { headers['X-Workspace-Id'] = options.workspace.id; headers['X-Workspace-Token'] = options.workspace.token; }
-  if (method !== 'GET') headers['X-Idempotency-Key'] = crypto.randomUUID();
+  if (method !== 'GET') {
+    const key = options.idempotencyKey ?? crypto.randomUUID();
+    headers['X-Idempotency-Key'] = key;
+    headers['Idempotency-Key'] = key;
+  }
   const body = options.body instanceof FormData ? options.body : options.body === undefined ? undefined : JSON.stringify(options.body);
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const res = await fetch(`/api/v1${path}`, { method, headers, body, signal: options.signal });

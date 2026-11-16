@@ -6,6 +6,7 @@ import uuid
 from fastapi import HTTPException
 
 from backend.app.db.migrations import open_connection
+from backend.app.coaching.model_budget import daily_count
 
 
 def reserve(conn, session_id, epoch, idempotency_key, settings):
@@ -14,10 +15,7 @@ def reserve(conn, session_id, epoch, idempotency_key, settings):
         raise RuntimeError("Model admission requires a transaction")
     timestamp = datetime.now(timezone.utc).isoformat()
     session_count = conn.execute('SELECT count(*) FROM studio_model_usage WHERE session_id=?', (session_id,)).fetchone()[0]
-    global_count = conn.execute('SELECT count(*) FROM studio_model_usage WHERE date(created_at)=date(?)', (timestamp,)).fetchone()[0]
-    global_count += conn.execute('SELECT COALESCE(SUM(request_count),0) FROM studio_model_deleted_daily WHERE day=date(?)', (timestamp,)).fetchone()[0]
-    global_count += conn.execute('SELECT count(*) FROM dsa_model_usage WHERE date(created_at)=date(?)', (timestamp,)).fetchone()[0]
-    global_count += conn.execute('SELECT COALESCE(SUM(request_count),0) FROM dsa_model_deleted_daily WHERE day=date(?)', (timestamp,)).fetchone()[0]
+    global_count = daily_count(conn,timestamp)
     active = conn.execute('SELECT count(*) FROM model_dispatch_leases').fetchone()[0]
     if session_count >= settings.model_session_call_limit or global_count >= settings.model_daily_call_limit:
         raise HTTPException(429, 'Model feedback budget exhausted; authored coaching and text remain available')
@@ -31,10 +29,16 @@ def reserve(conn, session_id, epoch, idempotency_key, settings):
 
 
 def settle(database_path, reservation_id, status):
-    if status not in ('COMMITTED', 'UNCERTAIN'):
+    if status not in ('COMMITTED', 'UNCERTAIN', 'RELEASED'):
         raise ValueError('Invalid model accounting status')
     with closing(open_connection(database_path)) as conn:
         conn.execute('BEGIN IMMEDIATE')
+        if status == 'RELEASED':
+            # Only callers proving no dispatch occurred may release a reservation.
+            conn.execute("DELETE FROM studio_model_usage WHERE id=? AND status='RESERVED'", (reservation_id,))
+            conn.execute("DELETE FROM model_dispatch_leases WHERE id=? AND status='RESERVED'", (reservation_id,))
+            conn.commit()
+            return
         conn.execute("UPDATE studio_model_usage SET status=? WHERE id=? AND status='RESERVED'", (status, reservation_id))
         if status == 'COMMITTED':
             conn.execute('DELETE FROM model_dispatch_leases WHERE id=?', (reservation_id,))
@@ -54,4 +58,8 @@ def purge_session(conn, session_id):
 def recover(conn):
     """A crashed request is uncertain and is never silently redispatched."""
     conn.execute("UPDATE studio_model_usage SET status='UNCERTAIN' WHERE status='RESERVED'")
+    for scope in ('dsa','assessment','legacy','codebase'):
+        table=f'{scope}_model_usage'
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+            conn.execute(f"UPDATE {table} SET status='UNCERTAIN' WHERE status='RESERVED'")
     conn.execute("UPDATE model_dispatch_leases SET status='UNCERTAIN' WHERE status='RESERVED'")

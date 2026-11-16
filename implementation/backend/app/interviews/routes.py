@@ -1,12 +1,14 @@
 """Exported /interviews router; coordinator includes it under /api/v1."""
 
+import json
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from sqlite3 import Connection
 from typing import Annotated
 
-from backend.app.db.migrations import open_connection
+from backend.app.assessments import review
+from backend.app.db.migrations import database_target, open_connection
 from backend.app.studio.routes import auth_workspace_row
 from backend.app.studio.security import authenticate_workspace
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -39,7 +41,7 @@ Owner = Annotated[Workspace, Depends(workspace)]
 
 @contextmanager
 def authorized_transaction(request: Request, owner: Workspace) -> Iterator[Connection]:
-    with service.transaction(request.app.state.settings.database_path) as conn:
+    with service.transaction(database_target(request.app.state.settings)) as conn:
         # Recheck capability after the write lock: pre-admission is not ownership proof.
         auth_workspace_row(conn, owner.id, "Bearer " + owner.token)
         yield conn
@@ -66,14 +68,15 @@ def create_session(body: NewSession, request: Request, owner: Owner) -> dict:
 @router.get("/reports/{session_id}", response_model=Report)
 def get_report(session_id: str, request: Request, owner: Owner) -> Report:
     """Read an already persisted report without advancing the interview lifecycle."""
-    with closing(open_connection(request.app.state.settings.database_path)) as conn:
+    with closing(open_connection(database_target(request.app.state.settings))) as conn:
         conn.execute("BEGIN")
         auth_workspace_row(conn, owner.id, "Bearer " + owner.token)
         session = service.owned(conn, session_id, owner.id)
         if session["state"] != "completed":
             raise HTTPException(404, "Interview report not found")
         stored = conn.execute(
-            "SELECT report_json FROM interview_reports WHERE session_id=?", (session_id,)
+            "SELECT report_json FROM interview_reports WHERE session_id=?",
+            (session_id,),
         ).fetchone()
         if stored is None:
             raise HTTPException(404, "Interview report not found")
@@ -89,10 +92,48 @@ def get_session(session_id: str, request: Request, owner: Owner) -> dict:
 
 
 @router.post("/sessions/{session_id}/answers", response_model=SessionView)
-def answer(session_id: str, body: Answer, request: Request, owner: Owner) -> dict:
+async def answer(session_id: str, body: Answer, request: Request, owner: Owner) -> dict:
     hook = getattr(request.app.state, "interview_completion_hook", None)
+    settings = request.app.state.settings
+    state = review.readiness(settings, body.allow_external)
+    reservation = None
     with authorized_transaction(request, owner) as conn:
-        return service.submit(conn, session_id, owner.id, body, hook)
+        before = service.owned(conn, session_id, owner.id)
+        session = service.expire(conn, before, hook)
+        if session["state"] != "active":
+            if before["state"] == "active":
+                return service.view(conn, session)
+            raise HTTPException(409, "Interview has ended")
+        if session["epoch"] != body.expected_epoch:
+            raise HTTPException(409, "Epoch conflict. Reload the session.")
+        row = conn.execute(
+            "SELECT question_json FROM interview_questions WHERE session_id=? AND epoch=?",
+            (session_id, body.expected_epoch),
+        ).fetchone()
+        pinned = json.loads(row["question_json"])
+        context = {"question": pinned["text"], "answer": body.answer}
+        if state == "MODEL_ASSISTED":
+            try:
+                reservation = review.reserve(
+                    conn,
+                    owner.id,
+                    "interview",
+                    session_id,
+                    body.expected_epoch,
+                    context,
+                    settings,
+                )
+            except HTTPException as exc:
+                if exc.status_code != 429:
+                    raise
+                state = "MODEL_BUDGET_EXHAUSTED"
+    semantic = (
+        await review.interpret(settings, context, body.expected_epoch, reservation)
+        if reservation
+        else review.initial_review(context, body.expected_epoch, state)
+    )
+    with authorized_transaction(request, owner) as conn:
+        return service.submit(conn, session_id, owner.id, body, hook, semantic)
 
 
 @router.post("/sessions/{session_id}/finish", response_model=Report)

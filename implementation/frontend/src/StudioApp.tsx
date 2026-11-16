@@ -57,7 +57,7 @@ export function StudioApp() {
   const graphLocked = busy || snapshot?.state === 'completed';
   const assumptionsPending = assumptionsText !== JSON.stringify(graph.assumptions, null, 2);
   useEffect(() => () => { generation.current++; turnAbort.current?.abort(); }, []);
-  const savedTab = (next: typeof tab) => { writeStudioTab(next); setTab(next); };
+  const savedTab = useCallback((next: typeof tab) => { writeStudioTab(next); setTab(next); }, []);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (dirty || assumptionsPending) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty, assumptionsPending]);
   useEffect(() => { const id = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(id); }, []);
   useEffect(() => {
@@ -95,7 +95,7 @@ export function StudioApp() {
     await studioRequest('/studio/workspaces', { method: 'POST', body: { workspace_id: workspace.id, workspace_token: workspace.token } });
     savedTab({ ...tab, workspace });
     return workspace;
-  }, [tab]);
+  }, [tab, savedTab]);
   async function openSession(session: StudioSession) {
     const load = ++generation.current;
     const path = `/studio/sessions/${encodeURIComponent(session.id)}`;

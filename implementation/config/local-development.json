@@ -1,0 +1,6 @@
+{
+  "backend_host": "127.0.0.1",
+  "backend_port": 8020,
+  "frontend_port": 5173,
+  "cors_hosts": ["localhost", "127.0.0.1"]
+}

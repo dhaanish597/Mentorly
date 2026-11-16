@@ -89,11 +89,13 @@ export async function createSession(
     branch?: string;
     commit_sha?: string | null;
     title?: string;
-  }
+  },
+  idempotencyKey?: string
 ): Promise<CodebaseSession> {
   return studioRequest<CodebaseSession>('/codebase-learning/sessions', {
     method: 'POST',
     workspace,
+    idempotencyKey,
     body: params,
   });
 }

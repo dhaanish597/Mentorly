@@ -21,6 +21,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/codebase-learning/audio/{filename}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serve Audio
+         * @description Serve synthesized mentor audio WAV file.
+         */
+        get: operations["get_codebase_learning_audio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        /**
+         * Serve Audio
+         * @description Serve synthesized mentor audio WAV file.
+         */
+        head: operations["head_codebase_learning_audio"];
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/codebase-learning/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sessions */
+        get: operations["list_sessions_api_v1_codebase_learning_sessions_get"];
+        put?: never;
+        /** Create Session */
+        post: operations["create_session_api_v1_codebase_learning_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/codebase-learning/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Session */
+        get: operations["get_session_api_v1_codebase_learning_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Session */
+        delete: operations["delete_session_api_v1_codebase_learning_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Session */
+        patch: operations["rename_session_api_v1_codebase_learning_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/codebase-learning/sessions/{session_id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Text Turn
+         * @description Text-fallback turn submitting a typed message to the mentor.
+         */
+        post: operations["submit_text_turn_api_v1_codebase_learning_sessions__session_id__turns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/codebase-learning/sessions/{session_id}/voice-turn": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Voice Turn
+         * @description Voice turn: recognizes learner speech via Gnani STT and returns mentor response + TTS audio.
+         */
+        post: operations["submit_voice_turn_api_v1_codebase_learning_sessions__session_id__voice_turn_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/gamification/dashboard": {
         parameters: {
             query?: never;
@@ -1886,6 +1987,16 @@ export interface components {
              */
             transport: string;
         };
+        /** Body_submit_voice_turn_api_v1_codebase_learning_sessions__session_id__voice_turn_post */
+        Body_submit_voice_turn_api_v1_codebase_learning_sessions__session_id__voice_turn_post: {
+            /**
+             * File
+             * @default null
+             */
+            file: string | null;
+            /** @default null */
+            payload: components["schemas"]["VoiceTurnJsonRequest"] | null;
+        };
         /** BrandingResponse */
         BrandingResponse: {
             /** Productname */
@@ -2053,10 +2164,9 @@ export interface components {
             extraction_method: components["schemas"]["ExtractionMethod"];
             /**
              * Model Status
-             * @default DETERMINISTIC_FALLBACK
-             * @enum {string}
+             * @default null
              */
-            model_status: "MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK";
+            model_status: ("MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK") | null;
             /**
              * Provider Confidence
              * @default null
@@ -2159,19 +2269,6 @@ export interface components {
              */
             requested_input: Record<string, never> | null;
             revision: components["schemas"]["RevisionRef"];
-        };
-        /** CreateSessionRequest */
-        CreateSessionRequest: {
-            exercise_id: components["schemas"]["ExerciseId"];
-            /** @default VOICE */
-            interaction_mode: components["schemas"]["InteractionMode"];
-            /** @default en-IN */
-            language_mode: components["schemas"]["LanguageMode"];
-            spec_version: components["schemas"]["SpecVersion"];
-            /** @default null */
-            spoken_language: components["schemas"]["SpeechLocale"] | null;
-            /** @default null */
-            voice: components["schemas"]["TTSVoice"] | null;
         };
         /** CreateSessionResponse */
         CreateSessionResponse: {
@@ -2328,10 +2425,9 @@ export interface components {
             extraction_method: components["schemas"]["ExtractionMethod"];
             /**
              * Model Status
-             * @default DETERMINISTIC_FALLBACK
-             * @enum {string}
+             * @default null
              */
-            model_status: "MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK";
+            model_status: ("MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK") | null;
             polarity: components["schemas"]["ClaimPolarity"];
             /**
              * Provider Confidence
@@ -2924,10 +3020,9 @@ export interface components {
             mechanism_summary: string;
             /**
              * Model Status
-             * @default DETERMINISTIC_FALLBACK
-             * @enum {string}
+             * @default null
              */
-            model_status: "MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK";
+            model_status: ("MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK") | null;
             /** @default AFFIRMATIVE */
             polarity: components["schemas"]["ClaimPolarity"];
             /**
@@ -3205,10 +3300,9 @@ export interface components {
             extraction_method: components["schemas"]["ExtractionMethod"];
             /**
              * Model Status
-             * @default DETERMINISTIC_FALLBACK
-             * @enum {string}
+             * @default null
              */
-            model_status: "MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK";
+            model_status: ("MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK") | null;
             /** @default AFFIRMATIVE */
             polarity: components["schemas"]["ClaimPolarity"];
             /** Predicted Output */
@@ -3345,6 +3439,11 @@ export interface components {
         RecoverySetup: {
             /** Recovery Token */
             recovery_token: string;
+        };
+        /** RenameSessionRequest */
+        RenameSessionRequest: {
+            /** Title */
+            title: string;
         };
         /** Report */
         Report: {
@@ -3638,17 +3737,6 @@ export interface components {
          * @enum {string}
          */
         TTSVoice: "Avinash" | "Shivani" | "Lakshmi" | "Kalpana" | "Shubham" | "Prakash" | "Devansh" | "Yashraj" | "Chetana" | "Vasudha" | "Riyaa" | "Tarika" | "Harshad";
-        /** TextTurnRequest */
-        TextTurnRequest: {
-            /**
-             * Challenge Id
-             * @default null
-             */
-            challenge_id: string | null;
-            revision: components["schemas"]["RevisionRef"];
-            /** Text */
-            text: string;
-        };
         /** TranscriptResponse */
         TranscriptResponse: {
             /** Epoch */
@@ -3712,10 +3800,9 @@ export interface components {
             extraction_method: components["schemas"]["ExtractionMethod"];
             /**
              * Model Status
-             * @default DETERMINISTIC_FALLBACK
-             * @enum {string}
+             * @default null
              */
-            model_status: "MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK";
+            model_status: ("MODEL_DISABLED" | "MODEL_NOT_CONFIGURED" | "MODEL_TIMEOUT" | "MODEL_RATE_LIMITED" | "MODEL_INVALID_RESPONSE" | "MODEL_UNAVAILABLE" | "MODEL_ASSISTED" | "DETERMINISTIC_FALLBACK") | null;
             /**
              * Provider Confidence
              * @default null
@@ -3863,6 +3950,16 @@ export interface components {
             /** Turn Id */
             turn_id: string;
         };
+        /** VoiceTurnJsonRequest */
+        VoiceTurnJsonRequest: {
+            /** Audio Base64 */
+            audio_base64: string;
+            /**
+             * Speech Locale
+             * @default en-IN
+             */
+            speech_locale: string;
+        };
         /** Workspace */
         Workspace: {
             /** Workspace Id */
@@ -3976,6 +4073,59 @@ export interface components {
             /** @default Avinash */
             voice: components["schemas"]["TTSVoice"];
         };
+        /** CreateSessionRequest */
+        backend__app__models__api_schemas__CreateSessionRequest: {
+            exercise_id: components["schemas"]["ExerciseId"];
+            /** @default VOICE */
+            interaction_mode: components["schemas"]["InteractionMode"];
+            /** @default en-IN */
+            language_mode: components["schemas"]["LanguageMode"];
+            spec_version: components["schemas"]["SpecVersion"];
+            /** @default null */
+            spoken_language: components["schemas"]["SpeechLocale"] | null;
+            /** @default null */
+            voice: components["schemas"]["TTSVoice"] | null;
+        };
+        /** TextTurnRequest */
+        backend__app__models__api_schemas__TextTurnRequest: {
+            /**
+             * Challenge Id
+             * @default null
+             */
+            challenge_id: string | null;
+            revision: components["schemas"]["RevisionRef"];
+            /** Text */
+            text: string;
+        };
+        /** CreateSessionRequest */
+        backend__app__repo_learning__mentor_routes__CreateSessionRequest: {
+            /**
+             * Branch
+             * @default main
+             */
+            branch: string;
+            /**
+             * Commit Sha
+             * @default null
+             */
+            commit_sha: string | null;
+            /** Repo Name */
+            repo_name: string;
+            /** Repo Url */
+            repo_url: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Title
+             * @default null
+             */
+            title: string | null;
+        };
+        /** TextTurnRequest */
+        backend__app__repo_learning__mentor_routes__TextTurnRequest: {
+            /** Text */
+            text: string;
+        };
         /** ModelProvenance */
         backend__app__studio__feedback__ModelProvenance: {
             /** Model */
@@ -4060,6 +4210,324 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CapacityResponse"];
+                };
+            };
+        };
+    };
+    get_codebase_learning_audio: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    head_codebase_learning_audio: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sessions_api_v1_codebase_learning_sessions_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+            };
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_session_api_v1_codebase_learning_sessions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["backend__app__repo_learning__mentor_routes__CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_api_v1_codebase_learning_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_session_api_v1_codebase_learning_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_session_api_v1_codebase_learning_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_text_turn_api_v1_codebase_learning_sessions__session_id__turns_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["backend__app__repo_learning__mentor_routes__TextTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_voice_turn_api_v1_codebase_learning_sessions__session_id__voice_turn_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Workspace-Id": string;
+                "X-Workspace-Token": string;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_submit_voice_turn_api_v1_codebase_learning_sessions__session_id__voice_turn_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5484,7 +5952,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateSessionRequest"];
+                "application/json": components["schemas"]["backend__app__models__api_schemas__CreateSessionRequest"];
             };
         };
         responses: {
@@ -6200,7 +6668,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TextTurnRequest"];
+                "application/json": components["schemas"]["backend__app__models__api_schemas__TextTurnRequest"];
             };
         };
         responses: {

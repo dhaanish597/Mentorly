@@ -6,6 +6,8 @@ import hashlib
 import json
 import re
 from copy import deepcopy
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -14,7 +16,7 @@ from .content_cs import CS
 from .content_design import DESIGN
 from .content_dsa import DSA
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 _CATALOG = {"version": VERSION, "tracks": [DSA, CS, APTITUDE, DESIGN]}
 PUBLIC_FIELDS = (
     "id",
@@ -35,7 +37,21 @@ def curriculum() -> dict[str, Any]:
 
 
 def public_question(question: dict[str, Any]) -> dict[str, Any]:
-    return {key: deepcopy(question[key]) for key in ("id", "prompt", "options")}
+    value = {key: deepcopy(question[key]) for key in ("id", "prompt")}
+    value["response_kind"] = question.get("response_kind", "multiple_choice")
+    if value["response_kind"] == "multiple_choice":
+        value["options"] = deepcopy(question["options"])
+        value["option_ids"] = [
+            option_id(question, option) for option in question["options"]
+        ]
+    return value
+
+
+def option_id(question: dict[str, Any], option: str) -> str:
+    return (
+        "option_"
+        + hashlib.sha256((question["id"] + "\0" + option).encode()).hexdigest()[:20]
+    )
 
 
 def public_catalog(value: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -93,9 +109,37 @@ def content_hash(lesson: dict[str, Any]) -> str:
     return hashlib.sha256(encode(lesson).encode()).hexdigest()
 
 
-def evaluate_answer(question: dict[str, Any], answer: str) -> dict[str, Any]:
+def evaluate_answer(
+    question: dict[str, Any], answer: str, selected_option_id: str | None = None
+) -> dict[str, Any]:
     # Exact normalized equality only: a paragraph containing an answer is not evidence.
-    correct = answer.strip().casefold() == question["correct_answer"].strip().casefold()
+    kind = question.get("response_kind", "multiple_choice")
+    if kind == "multiple_choice":
+        selected = (
+            next(
+                (
+                    option
+                    for option in question["options"]
+                    if option_id(question, option) == selected_option_id
+                ),
+                None,
+            )
+            if selected_option_id
+            else answer.strip()
+        )
+        # Explicit IDs cannot be combined with a different label, even if one is correct.
+        valid_pair = (
+            not selected_option_id
+            or selected is not None
+            and (not answer.strip() or answer.strip().casefold() == selected.casefold())
+        )
+        correct = (
+            valid_pair
+            and selected is not None
+            and selected.casefold() == question["correct_answer"].strip().casefold()
+        )
+    else:
+        correct = evaluate_declared_short_answer(question, answer)
     return {
         "correct": correct,
         "message": (
@@ -105,6 +149,41 @@ def evaluate_answer(question: dict[str, Any], answer: str) -> dict[str, Any]:
         ),
         "answer_key_revealed": correct,
     }
+
+
+def evaluate_declared_short_answer(question: dict[str, Any], answer: str) -> bool:
+    """Only opt-in literal numeric/boolean/enumeration representations; no algebra."""
+    contract = question.get("accepted_representations", {})
+    if contract.get("version") != "1.0":
+        return False
+    kind = question.get("response_kind")
+    value = answer.strip()
+    if len(value) > 200:
+        return False
+    if kind in {"boolean", "enumeration"}:
+        aliases = contract.get("aliases", [])
+        return (
+            isinstance(aliases, list)
+            and all(isinstance(item, str) for item in aliases)
+            and value.casefold() in {item.strip().casefold() for item in aliases}
+        )
+    if kind == "numeric":
+
+        def number(raw: str):
+            if (
+                re.fullmatch(r"[+-]?\d{1,30}\s*/\s*[+-]?\d{1,30}", raw)
+                and contract.get("allow_fraction") is True
+            ):
+                return Fraction(raw.replace(" ", ""))
+            if not re.fullmatch(r"[+-]?(?:\d{1,30}(?:\.\d{1,30})?|\.\d{1,30})", raw):
+                raise ValueError("Only finite literal numbers accepted")
+            return Fraction(Decimal(raw))
+
+        try:
+            return number(value) == number(str(question["correct_answer"]))
+        except (InvalidOperation, ValueError, ZeroDivisionError):
+            return False
+    return False
 
 
 def _text(value: Any, minimum: int = 1, maximum: int = 8000) -> None:
@@ -190,16 +269,44 @@ def _validate_lesson(
     question = lesson["question"]
     _text(question["id"], maximum=128)
     _text(question["prompt"])
-    options = question["options"]
-    if not isinstance(options, list) or not 2 <= len(options) <= 6:
-        raise ValueError("Invalid objective question options")
-    for option in options:
-        _text(option, maximum=500)
-    if (
-        len({o.strip().casefold() for o in options}) != len(options)
-        or question["correct_answer"] not in options
-    ):
-        raise ValueError("Invalid objective answer key")
+    kind = question.get("response_kind", "multiple_choice")
+    if kind == "multiple_choice":
+        options = question["options"]
+        if not isinstance(options, list) or not 2 <= len(options) <= 6:
+            raise ValueError("Invalid objective question options")
+        for option in options:
+            _text(option, maximum=500)
+        if (
+            len({o.strip().casefold() for o in options}) != len(options)
+            or question["correct_answer"] not in options
+        ):
+            raise ValueError("Invalid objective answer key")
+    elif kind in {"numeric", "boolean", "enumeration"}:
+        _text(question["correct_answer"], maximum=200)
+        contract = question.get("accepted_representations")
+        if (
+            not isinstance(contract, dict)
+            or contract.get("version") != "1.0"
+            or set(contract) - {"version", "aliases", "allow_fraction"}
+        ):
+            raise ValueError("Invalid declared short-answer contract")
+        if kind in {"boolean", "enumeration"}:
+            aliases = contract.get("aliases")
+            if not isinstance(aliases, list) or not 1 <= len(aliases) <= 20:
+                raise ValueError("Invalid declared short-answer aliases")
+            for alias in aliases:
+                _text(alias, maximum=200)
+            if len({item.strip().casefold() for item in aliases}) != len(aliases):
+                raise ValueError("Duplicate declared short-answer aliases")
+        elif (
+            "allow_fraction" in contract
+            and type(contract["allow_fraction"]) is not bool
+        ):
+            raise ValueError("Invalid declared numeric representation")
+        if not evaluate_declared_short_answer(question, question["correct_answer"]):
+            raise ValueError("Invalid declared short-answer key")
+    else:
+        raise ValueError("Unsupported objective response kind")
     _text(question["rationale"], minimum=40)
     if lesson["explanation_rubric"]["status"] != "unassessed":
         raise ValueError("Explanation rubric must be unassessed")

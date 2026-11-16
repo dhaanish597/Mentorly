@@ -26,13 +26,30 @@ class Gate:
     def __init__(self):
         self.active = 0
         self.acquired = 0
+        self.dispatched = 0
+        self.completed = 0
+        self.uncertain_releases = 0
+        self._inflight_dispatch = False
 
     async def _acquire_single_slot(self):
         assert self.active == 0
         self.active += 1
         self.acquired += 1
 
-    def _release_single_slot(self):
+    def mark_provider_dispatch(self):
+        assert self.active == 1
+        self.dispatched += 1
+        self._inflight_dispatch = True
+
+    def mark_provider_complete(self):
+        assert self.active == 1 and self._inflight_dispatch
+        self.completed += 1
+        self._inflight_dispatch = False
+
+    def _release_single_slot(self, *, uncertain=False):
+        assert self.active == 1
+        self.uncertain_releases += int(uncertain and self._inflight_dispatch)
+        self._inflight_dispatch = False
         self.active -= 1
 
 
@@ -100,6 +117,7 @@ def test_transcription_is_final_draft_without_source_submission_or_audio_retenti
                              'requires_confirmation':True, 'epoch':1}
     assert result.headers['cache-control'] == 'no-store'
     assert voice.gate.acquired == 1 and voice.gate.active == 0
+    assert voice.gate.dispatched == 1 and voice.gate.completed == 1 and voice.gate.uncertain_releases == 0
     assert usage(voice)[0]['status'] == 'COMMITTED'
     assert usage(voice)[0]['stt_seconds'] == .1
     with closing(open_connection(voice.path)) as db:
@@ -212,6 +230,7 @@ def test_provider_timeout_awaits_cleanup_and_retains_uncertain_usage(voice, monk
     monkeypatch.setattr(voice.provider, 'PROVIDER_DEADLINE_SECONDS', .01)
     assert post(voice).status_code == 503
     assert cleaned == [True] and usage(voice)[0]['status'] == 'UNCERTAIN'
+    assert voice.gate.dispatched == 1 and voice.gate.completed == 0 and voice.gate.uncertain_releases == 1
     assert voice.gate.active == 0
 
 

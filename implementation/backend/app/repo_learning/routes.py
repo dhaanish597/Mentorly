@@ -1,22 +1,21 @@
 """Authenticated workspace-scoped, passive repository learning endpoints."""
 from __future__ import annotations
+from backend.app.db.migrations import database_target
 from email import policy
 from email.parser import BytesParser
-from urllib.parse import urlsplit
 import asyncio
-import re
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 from . import idempotency, ingest, lifecycle, service
-from .network import PublicArchiveTransport
+from .network import PublicArchiveTransport, public_archive_url
 from backend.app.studio.security import authenticate_workspace
 
 router = APIRouter(prefix='/repos', tags=['repository-learning'])
 
 def auth(request, workspace, token):
     authenticate_workspace(request, workspace, token)
-    return request.app.state.settings.database_path
+    return database_target(request.app.state.settings)
 
 def scope(workspace: str = Header(..., alias='X-Workspace-Id'), token: str = Header(..., alias='X-Workspace-Token')):
     return workspace, token
@@ -61,35 +60,8 @@ def retry_key(request: Request) -> str | None:
     return key
 
 
-def normalize_repo_url(locator: str) -> tuple[str, str, str, str]:
-    """Parse and normalize git repository URL into (platform, owner, repo, branch_or_head)."""
-    u = urlsplit(locator.strip())
-    if u.scheme != 'https' or u.netloc.lower() not in ('github.com', 'gitlab.com') or u.query or u.fragment:
-        raise ingest.ImportFailure('unsupported repository URL')
-    parts = u.path.strip('/').split('/')
-    if len(parts) < 2 or not all(re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', part) and part not in ('.', '..') for part in parts):
-        raise ingest.ImportFailure('unsupported repository URL')
-    owner = parts[0]
-    repo = parts[1].removesuffix('.git')
-    if not repo:
-        raise ingest.ImportFailure('unsupported repository URL')
-    branch = 'HEAD'
-    if len(parts) >= 4 and parts[2] in ('tree', 'branch'):
-        branch = '/'.join(parts[3:])
-    platform = 'github' if u.netloc.lower() == 'github.com' else 'gitlab'
-    return platform, owner, repo, branch
-
-
 async def fetch_public_archive(locator: str) -> bytes:
-    platform, owner, repo, branch = normalize_repo_url(locator)
-    if platform == 'github':
-        url = (
-            f'https://codeload.github.com/{owner}/{repo}/zip/HEAD'
-            if branch == 'HEAD'
-            else f'https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}'
-        )
-    else:
-        url = f'https://gitlab.com/{owner}/{repo}/-/archive/{branch}/{repo}-{branch}.zip'
+    url=public_archive_url(locator)
     try:
         async with asyncio.timeout(ARCHIVE_TOTAL_TIMEOUT):
             async with httpx.AsyncClient(transport=PublicArchiveTransport(), follow_redirects=False, trust_env=False, timeout=httpx.Timeout(20,connect=5)) as client:

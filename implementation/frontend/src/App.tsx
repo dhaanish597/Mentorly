@@ -142,6 +142,9 @@ export function App(): React.ReactElement {
       setConversation(restoredEntries);
       const last = restoredEntries[restoredEntries.length - 1];
       if (last) { setConversationEntryId(last.id); setConversationSpeaker(last.speaker); if (last.speaker === 'mentor') { setMentorText(last.text); setMentorFallback(last.source === 'authored_public_contract' || last.source === 'authored_adaptive_fallback'); } }
+      if (restored.editableTranscript.trim() && restored.editableTranscript !== restored.rawTranscript) {
+        setConversationDraft(true); setRecordedFinalTranscript(false); setHasCurrentStudentText(true); setConversationSpeaker('student');
+      }
     } catch { setStorageWarning('Conversation history could not be restored on this device.'); }
   }, [workbench.sessionId]);
   function appendConversation(entry: ConversationEntry, recorded = false): void {
@@ -1037,7 +1040,7 @@ export function App(): React.ReactElement {
         <LearningStepIndicator state={workbench} />
         <div className="practice-toolbar"><p role="status" aria-live="polite">{busy ? 'Working…' : stageCopy[workbench.activeView]}{recording ? ` · Recording (${Math.round(rms * 100)}% level)` : ''}</p><div className="button-row"><span className="save-status">{workbench.editorDirty ? 'Draft · not saved to session' : workbench.sessionId ? 'Saved revision' : 'Starter code'}</span></div></div>
         <div className="mobile-pane-switch"><AccessibleTabs label="Workspace panes" controls={{ Statement: 'statement-pane', Code: 'code-pane', Coach: 'coach-pane', Results: 'results-pane' }} tabs={['Statement', 'Code', 'Coach', 'Results']} selected={mobilePane} onSelect={setMobilePane} /></div>
-        <div className={`workspace-grid ${product.coachCollapsed ? 'coach-collapsed' : ''}`} data-mobile-pane={mobilePane} style={{ '--statement-width': `${product.statementWidth}px`, '--coach-width': `${product.coachWidth}px`, '--results-height': `${product.resultsHeight}px` } as React.CSSProperties}>
+        <div className={`workspace-grid ${product.coachCollapsed ? 'coach-collapsed' : ''}`} data-mobile-pane={mobilePane} style={{ '--statement-width': `${product.statementWidth}px`, '--coach-width': `${product.coachWidth}px`, '--results-height': `${product.resultsHeight}px`, '--voice-dock-height': `${product.resultsHeight + 330}px` } as React.CSSProperties}>
           <aside id="statement-pane" className="statement-pane" aria-label="Problem statement"><ProblemConstraintPanel exercise={currentExercise} state={workbench} onSelectSpec={spec => { void openProblem(workbench.exerciseId, spec).catch(fail); }} onAcknowledgeSpec={() => { void perform(async () => { const s = requireReady(); const epoch = generation.current; await api.acknowledgeSessionSpec(s.sessionId, { spec_version: s.specVersion, revision: s.revision }); const snapshot = await api.restoreSession(s.sessionId); if (isCurrent(epoch, s)) applySnapshot(snapshot, s.sessionToken!); }); }} /></aside>
           <div className="statement-resize"><ResizeHandle label="Resize problem statement" orientation="vertical" value={product.statementWidth} min={240} max={480} defaultValue={300} onChange={statementWidth => setProduct(prev => ({ ...prev, statementWidth }))} /></div>
           <CodeWorkspace state={workbench} highlightedLine={traceLine} onChangeCode={changeCode} onSaveCode={() => { void saveCode().catch(fail); }} onSubmitCode={() => { void voice.current.unlockAudioFromGesture(); void perform(submitCode); }} isBusy={busy} />
@@ -1134,7 +1137,7 @@ export function App(): React.ReactElement {
             <div className="transcript-content" id="transcript-panel" hidden={visibleResultPane !== 'Transcript'} role={executionVisible ? 'tabpanel' : undefined} aria-labelledby={executionVisible ? 'transcript-panel-tab' : undefined}>
             <ActiveConversation speaker={speaking ? 'mentor' : recording ? 'student' : conversationSpeaker} text={speaking ? mentorText : recording && !hasCurrentStudentText ? '' : conversationSpeaker === 'student' ? workbench.editableTranscript : mentorText} status={error ? 'error' : speaking ? 'playing' : recording ? 'listening' : busy ? 'thinking' : 'idle'} progress={audioProgress} history={conversation} mentorName={getTeacherForSubject(currentExercise?.collection).name} mentorPortrait={getTeacherForSubject(currentExercise?.collection).avatarUrl} recordedFinalTranscript={hasCurrentStudentText && recordedFinalTranscript && !speaking} transcriptId={conversationEntryId} isDraft={conversationDraft} />
             {mentorFallback && (speaking || (!recording && conversationSpeaker === 'mentor')) && <p className="settings-footnote" role="status">AI mentor is temporarily unavailable. This response uses guided coaching based on your explanation.</p>}
-            {workbench.sessionId && showTranscript && (
+            {workbench.sessionId && (
               <details className="mentor-chat-stream"><summary>Interpretation & grounded hints</summary>
                 {workbench.editorDirty && <p className="notice">Save this revision before explaining or checking it. Previous evidence is superseded.</p>}
                 {workbench.proposedClaim && (

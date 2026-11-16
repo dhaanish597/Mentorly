@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../components/HorizonVisuals';
 import type { Workspace } from '../../studioApi';
-import { ingestRepoUrl, ingestGoldenRepo, pollSnapshot, createSession, type CodebaseSession } from './codebaseApi';
+import { ingestRepoUrl, ingestGoldenRepo, pollSnapshot, createSession, type CodebaseSession, type CodebaseSnapshot } from './codebaseApi';
 
 export type CodebaseOnboardingProps = {
   workspace: Workspace;
@@ -16,18 +16,53 @@ const SAMPLE_REPOS = [
   { label: 'Architecture Baseline', url: 'REPO-EXP-01', isGolden: true },
 ];
 
+type PendingAttempt = { identity: string; key: string; snapshot?: CodebaseSnapshot };
+const PENDING_KEY = 'viva-codebase-pending-v1';
+function readPending(): PendingAttempt | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? 'null');
+    return value && typeof value.identity === 'string' && typeof value.key === 'string' ? value : null;
+  } catch { return null; }
+}
+function savePending(value: PendingAttempt | null): boolean {
+  try {
+    if (value) sessionStorage.setItem(PENDING_KEY, JSON.stringify(value));
+    else sessionStorage.removeItem(PENDING_KEY);
+    return true;
+  } catch { return false; }
+}
+function ownsPending(attempt: PendingAttempt): boolean {
+  const stored = readPending();
+  return stored?.identity === attempt.identity && stored.key === attempt.key;
+}
+async function workspaceFingerprint(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function CodebaseOnboarding({
   workspace,
   onSessionReady,
   onViewHistory,
   hasExistingSessions = false,
 }: CodebaseOnboardingProps) {
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(() => {
+    try { return JSON.parse(readPending()?.identity ?? '[]')[2] ?? ''; } catch { return ''; }
+  });
   const [status, setStatus] = useState<'idle' | 'validating' | 'indexing' | 'preparing' | 'error'>('idle');
   const [progressMsg, setProgressMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const pending = useRef<PendingAttempt | null>(readPending());
+  const inFlight = useRef(false);
+  const mounted = useRef(false);
+  const currentWorkspace = useRef(workspace);
+  currentWorkspace.current = workspace;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+
+
   async function handleStartLearning(targetUrl?: string) {
+    if (inFlight.current) return;
     const inputUrl = (targetUrl || url).trim();
     if (!inputUrl) {
       setError('Please enter a GitHub repository URL.');
@@ -40,15 +75,28 @@ export function CodebaseOnboarding({
       return;
     }
 
+    inFlight.current = true;
+    let fingerprint: string;
+    try { fingerprint = await workspaceFingerprint(workspace.token); }
+    catch { inFlight.current = false; setError('Unable to securely prepare this request.'); return; }
+    if (!mounted.current || currentWorkspace.current.id !== workspace.id || currentWorkspace.current.token !== workspace.token) { inFlight.current = false; return; }
+    const identity = JSON.stringify([workspace.id, fingerprint, inputUrl]);
+    if (pending.current?.identity !== identity) pending.current = { identity, key: crypto.randomUUID() };
+    if (!savePending(pending.current)) { inFlight.current = false; setError('Tab storage is required to safely retry this request.'); return; }
+    const attempt = pending.current;
+    const current = () => mounted.current && currentWorkspace.current.id === workspace.id && currentWorkspace.current.token === workspace.token;
+    inFlight.current = true;
     setError(null);
     setStatus('validating');
     setProgressMsg('Validating repository and connecting to GitHub…');
 
     try {
-      let snapshot;
+      let snapshot = attempt.snapshot;
       const isGolden = inputUrl === 'REPO-EXP-01' || inputUrl === 'REPO-EXP-02';
 
-      if (isGolden) {
+      if (snapshot) {
+        setProgressMsg('Resuming repository preparation…');
+      } else if (isGolden) {
         setProgressMsg('Loading curated architectural snapshot…');
         snapshot = await ingestGoldenRepo(workspace, inputUrl);
       } else {
@@ -56,6 +104,9 @@ export function CodebaseOnboarding({
         snapshot = await ingestRepoUrl(workspace, inputUrl);
       }
 
+      attempt.snapshot = { snapshot_id: snapshot.snapshot_id, status: snapshot.status, files_indexed: snapshot.files_indexed, total_files: snapshot.total_files, failure_code: snapshot.failure_code };
+      if (ownsPending(attempt)) savePending(attempt);
+      if (!current()) return;
       setStatus('indexing');
       setProgressMsg('Indexing directory structure, symbols, and dependencies…');
 
@@ -67,7 +118,11 @@ export function CodebaseOnboarding({
           throw new Error('Indexing took longer than expected. Please try again.');
         }
         await new Promise((r) => setTimeout(r, 1200));
+        if (!current()) return;
         snapshot = await pollSnapshot(workspace, snapshot.snapshot_id);
+        attempt.snapshot = { snapshot_id: snapshot.snapshot_id, status: snapshot.status, files_indexed: snapshot.files_indexed, total_files: snapshot.total_files, failure_code: snapshot.failure_code };
+        if (ownsPending(attempt)) savePending(attempt);
+        if (!current()) return;
         if (snapshot.status === 'INDEXING') {
           const count = snapshot.files_indexed ?? 0;
           const total = snapshot.total_files ?? 0;
@@ -76,6 +131,8 @@ export function CodebaseOnboarding({
       }
 
       if (snapshot.status === 'FAILED') {
+        pending.current = null;
+        if (ownsPending(attempt)) savePending(null);
         throw new Error(snapshot.failure_code ? `Ingestion failed: ${snapshot.failure_code}` : 'Failed to ingest repository.');
       }
 
@@ -96,12 +153,18 @@ export function CodebaseOnboarding({
         repo_url: isGolden ? 'https://github.com/mentorly/reference' : inputUrl,
         repo_name: repoName,
         title: `Exploring ${repoName}`,
-      });
+      }, attempt.key);
 
+      if (!current()) return;
+      pending.current = null;
+      if (ownsPending(attempt)) savePending(null);
       onSessionReady(session);
     } catch (err) {
+      if (!current()) return;
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Failed to start learning session.');
+    } finally {
+      inFlight.current = false;
     }
   }
 
@@ -149,8 +212,15 @@ export function CodebaseOnboarding({
                   type="text"
                   placeholder="https://github.com/owner/repository"
                   value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  autoFocus
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    const storedSource = pending.current ? JSON.parse(pending.current.identity)[2] : null;
+                    if (storedSource && next.trim() && next.trim() !== storedSource) {
+                      if (pending.current && ownsPending(pending.current)) savePending(null);
+                      pending.current = null;
+                    }
+                    setUrl(next);
+                  }}
                   spellCheck={false}
                 />
                 <button

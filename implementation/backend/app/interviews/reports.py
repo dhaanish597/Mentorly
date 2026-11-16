@@ -18,8 +18,9 @@ LIMITATIONS = [
 
 def build_report(conn: Connection, session: Row, reason: str, timestamp: str) -> dict:
     rows = conn.execute(
-        """SELECT a.*,q.question_json FROM interview_answers a
+        """SELECT a.*,q.question_json,r.review_json FROM interview_answers a
         JOIN interview_questions q ON q.id=a.question_id AND q.session_id=a.session_id
+        LEFT JOIN interview_semantic_reviews r ON r.answer_id=a.id
         WHERE a.session_id=? ORDER BY a.epoch""",
         (session["id"],),
     ).fetchall()
@@ -33,6 +34,7 @@ def build_report(conn: Connection, session: Row, reason: str, timestamp: str) ->
                 "answer": row["answer"],
                 "code": row["code"],
                 "indicators": observe(row["answer"], question["indicator_ids"]),
+                "semantic_review": json.loads(row["review_json"]) if row["review_json"] else None,
             }
         )
     return {
@@ -43,7 +45,7 @@ def build_report(conn: Connection, session: Row, reason: str, timestamp: str) ->
         "answers": answers,
         "semantic_validity": {
             "status": "unassessed",
-            "reason": "Lexical presence does not establish a valid explanation.",
+            "reason": "Optional semantic quality signals are reported separately per answer. They do not establish technical correctness or mastery.",
         },
         "technical_correctness": {
             "status": "unassessed_no_execution_evidence",

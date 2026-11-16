@@ -28,11 +28,16 @@ class SpeechService:
         cache_dir: str | Path,
         api_key: str | None = None,
         settings: Settings | None = None,
+        recover_usage: bool = True,
     ) -> None:
         configured = settings or Settings(_env_file=None)
         self.settings = configured
-        self.cache = TTSDiskCache(Path(cache_dir), max_bytes=configured.tts_cache_max_bytes,
-                                  max_age_seconds=configured.tts_cache_max_age_seconds)
+        from backend.app.db.postgres.runtime import PostgresTarget
+        from backend.app.speech.postgres_cache import PostgresTTSCache
+        cache_type = PostgresTTSCache if isinstance(db_path, PostgresTarget) else TTSDiskCache
+        self.cache = cache_type(db_path if isinstance(db_path, PostgresTarget) else Path(cache_dir),
+                                max_bytes=configured.tts_cache_max_bytes,
+                                max_age_seconds=configured.tts_cache_max_age_seconds)
         provider_origin = configured.gnani_base_url.rstrip("/")
         self.adapter = GnaniSpeechAdapter(
             api_key=(api_key if api_key is not None else (
@@ -50,7 +55,8 @@ class SpeechService:
             per_session_tts_chars=configured.max_tts_chars_per_session,
             global_daily_call_limit=configured.global_daily_call_limit,
         )
-        self.gatekeeper.recover_pending_usage()
+        if recover_usage:
+            self.gatekeeper.recover_pending_usage()
         self.ws = GnaniWebSocketSTTRelay(self.gatekeeper)
         self._tasks: dict[tuple[str, int], set[asyncio.Task]] = {}
 

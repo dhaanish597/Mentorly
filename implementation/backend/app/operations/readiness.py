@@ -1,5 +1,6 @@
 """Operator-only diagnostics and a fixed, genuinely isolated execution canary."""
 from __future__ import annotations
+from backend.app.db.migrations import database_target
 
 import asyncio
 from contextlib import closing
@@ -41,6 +42,14 @@ def _require_operator(request: Request, authorization: str | None) -> None:
 
 
 def _database_ready(path) -> bool:
+    from backend.app.db.postgres.runtime import PostgresTarget
+    if isinstance(path, PostgresTarget):
+        try:
+            with path.connect() as conn:
+                conn.execute("SET statement_timeout TO '500ms'")
+                return conn.execute("SELECT to_regclass('sessions') IS NOT NULL").fetchone()==(True,)
+        except (ValueError,sqlite3.Error):
+            return False
     deadline = time.monotonic() + DATABASE_CHECK_SECONDS
     try:
         with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.5)) as conn:
@@ -82,7 +91,7 @@ async def operations_readiness(request: Request, authorization: str | None = Hea
                                run_canary: bool = True) -> OperationsReadinessResponse:
     _require_operator(request, authorization)
     settings = request.app.state.settings
-    database = await asyncio.to_thread(_database_ready, settings.database_path)
+    database = await asyncio.to_thread(_database_ready, database_target(settings))
     accepted = await probe_execution_readiness(settings)
     execution, canary, duration = False, "NOT_RUN", None
     if database and accepted == "READY" and run_canary:
