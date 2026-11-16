@@ -246,7 +246,8 @@ def provision_target(credentials, *, fence_verified, account_key,
     initialize(target)
     with frozen_legacy_schema(target, source_schema) as frozen:
         result = copy_legacy_schema(target, source_schema, history, frozen_connection=frozen,
-                                    legacy_speech_account_key=account_key)
+                                    legacy_speech_account_key=account_key,
+                                    retain_expired_request_leases=True)
         # PostgreSQL CREATEROLE does not imply SET ROLE membership or permission
         # to transfer ownership. Keep DDL under the verified operator; runtime
         # receives only the privileges its ordinary application queries need.

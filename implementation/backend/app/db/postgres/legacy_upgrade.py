@@ -37,7 +37,7 @@ def frozen_legacy_schema(target, source_schema: str):
         yield conn
 
 
-def _retain_uncertain_speech_leases(conn, source_schema, destination, account_key):
+def _retain_uncertain_speech_leases(conn, source_schema, destination, account_key, retain_expired_requests=False):
     """Retain unknown dispatches and occupy the real account's single slot.
 
     This is not reconciliation. No expired or unknown provider work is released,
@@ -49,18 +49,24 @@ def _retain_uncertain_speech_leases(conn, source_schema, destination, account_ke
         'SELECT id,kind,owner,state,expires_at,created_at FROM {}.cloud_leases ORDER BY id'
     ).format(source)).fetchall()
     if not rows:
-        return []
-    if not isinstance(account_key, str) or not account_key:
-        raise UpgradeError('Legacy provider leases must be reconciled or explicitly retained for their verified account.')
+        return [], 0
     now = conn.execute('SELECT extract(epoch FROM clock_timestamp())').fetchone()[0]
-    if any(kind != 'speech' or state != 'UNCERTAIN' or not expires_at <= now
-           for _, kind, _, state, expires_at, _ in rows):
-        raise UpgradeError('Only expired UNCERTAIN speech leases may be retained; other legacy work must be reconciled.')
-    digest = hashlib.sha256(('viva-gnani-account-v1:' + account_key).encode()).hexdigest()
-    conn.execute('INSERT INTO viva_provider_coordination.accounts VALUES(%s,1) ON CONFLICT(account_hash) DO NOTHING', (digest,))
-    capacity = conn.execute('SELECT capacity FROM viva_provider_coordination.accounts WHERE account_hash=%s FOR UPDATE', (digest,)).fetchone()
-    if capacity != (1,):
-        raise UpgradeError('Legacy uncertain speech requires the verified single-slot provider account.')
+    requests = [row for row in rows if row[1] == 'request']
+    speech = [row for row in rows if row[1] == 'speech']
+    if (len(requests) + len(speech) != len(rows)
+            or any(state != 'UNCERTAIN' or not expires_at <= now
+                   for _, _, _, state, expires_at, _ in speech)
+            or any(retain_expired_requests is not True or state != 'HELD' or not expires_at <= now
+                   for _, _, _, state, expires_at, _ in requests)):
+        raise UpgradeError('Only expired UNCERTAIN speech leases and explicitly retained expired HELD request leases may be retained; other legacy work must be reconciled.')
+    if speech:
+        if not isinstance(account_key, str) or not account_key:
+            raise UpgradeError('Legacy provider leases must be reconciled or explicitly retained for their verified account.')
+        digest = hashlib.sha256(('viva-gnani-account-v1:' + account_key).encode()).hexdigest()
+        conn.execute('INSERT INTO viva_provider_coordination.accounts VALUES(%s,1) ON CONFLICT(account_hash) DO NOTHING', (digest,))
+        capacity = conn.execute('SELECT capacity FROM viva_provider_coordination.accounts WHERE account_hash=%s FOR UPDATE', (digest,)).fetchone()
+        if capacity != (1,):
+            raise UpgradeError('Legacy uncertain speech requires the verified single-slot provider account.')
     conn.execute(sql.SQL('CREATE TABLE {}.legacy_cloud_leases (LIKE {}.cloud_leases INCLUDING ALL)').format(destination, source))
     conn.execute(sql.SQL('INSERT INTO {}.legacy_cloud_leases SELECT * FROM {}.cloud_leases').format(destination, source))
     mismatch = conn.execute(sql.SQL(
@@ -70,7 +76,7 @@ def _retain_uncertain_speech_leases(conn, source_schema, destination, account_ke
     if mismatch:
         raise UpgradeError('Legacy provider leases failed reconciliation.')
     retained = []
-    for identifier, _, _, _, expires_at, created_at in rows:
+    for identifier, _, _, _, expires_at, created_at in speech:
         bridge_id = 'legacy:' + str(uuid.uuid5(uuid.NAMESPACE_URL, source_schema + ':' + identifier))
         conn.execute("""INSERT INTO viva_provider_coordination.leases
             (id,account_hash,state,expires_at,created_at)
@@ -83,11 +89,11 @@ def _retain_uncertain_speech_leases(conn, source_schema, destination, account_ke
         if matches != (True,):
             raise UpgradeError('Legacy provider lease bridge conflicts with existing accounting.')
         retained.append(bridge_id)
-    return retained
+    return retained, len(requests)
 
 
 def copy_legacy_schema(target, source_schema: str, expected_history, *, frozen_connection=None,
-                       legacy_speech_account_key=None):
+                       legacy_speech_account_key=None, retain_expired_request_leases=False):
     """Copy a validated legacy schema to an initialized empty target atomically.
 
     Original tables remain untouched. Callers must retain backups and establish
@@ -98,6 +104,10 @@ def copy_legacy_schema(target, source_schema: str, expected_history, *, frozen_c
     operator must independently verify that this key identifies the legacy
     Gnani account and all old workers/provider activity have quiesced; the copy
     cannot establish either fact. Retained uncertainty prevents voice calls.
+    After independently fencing and draining old workers, an explicit
+    retain_expired_request_leases=True also archives expired HELD HTTP request
+    admission leases. These are not provider reservations and create no provider
+    slot. Their original source rows remain untouched. All other work is rejected.
     """
     import re
     if not re.fullmatch(r'[a-z][a-z0-9_]{0,62}', source_schema) or source_schema == target.schema:
@@ -131,8 +141,9 @@ def copy_legacy_schema(target, source_schema: str, expected_history, *, frozen_c
         for table in target_columns:
             if conn.execute(sql.SQL('SELECT EXISTS(SELECT 1 FROM {}.{})').format(destination, sql.Identifier(table))).fetchone()[0]:
                 raise UpgradeError('Target is not empty.')
-        retained_leases = _retain_uncertain_speech_leases(
-            conn, source_schema, destination, legacy_speech_account_key)
+        retained_leases, retained_requests = _retain_uncertain_speech_leases(
+            conn, source_schema, destination, legacy_speech_account_key,
+            retain_expired_request_leases)
         copied = 0
         for table in _order(conn, target.schema, source_columns):
             names = sql.SQL(',').join(map(sql.Identifier, source_columns[table]))
@@ -163,4 +174,5 @@ def copy_legacy_schema(target, source_schema: str, expected_history, *, frozen_c
             raise UpgradeError('Legacy audio failed reconciliation.')
         audio_count = conn.execute(sql.SQL('SELECT count(*) FROM {}.legacy_cloud_audio').format(destination)).fetchone()[0]
     return {'tables': len(source_columns), 'rows': copied, 'retained_audio': audio_count,
-            'retained_leases': len(retained_leases), 'retained_lease_ids': retained_leases}
+            'retained_leases': len(retained_leases),
+            'retained_request_leases': retained_requests, 'retained_lease_ids': retained_leases}

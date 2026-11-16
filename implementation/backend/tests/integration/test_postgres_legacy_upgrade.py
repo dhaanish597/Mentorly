@@ -318,3 +318,59 @@ def test_same_source_recopy_reuses_uncertain_bridge_without_duplicate_or_release
         assert dispatcher.reserve() is None
     finally:
         conn.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(other.schema)))
+
+
+def test_explicit_expired_request_retention_preserves_mixed_archive_and_source(legacy, provider_account):
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    originals = [
+        ('request-a', 'request', 'http-a', 'HELD', 1.25, 0.5),
+        ('request-b', 'request', 'http-b', 'HELD', 2.25, 1.5),
+        ('speech', 'speech', 'voice', 'UNCERTAIN', 3.25, 2.5),
+    ]
+    for row in originals:
+        conn.execute('INSERT INTO cloud_leases VALUES(%s,%s,%s,%s,%s,%s)', row)
+    with pytest.raises(UpgradeError, match='explicitly retained'):
+        copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    result = copy_legacy_schema(target, name, expected, legacy_speech_account_key=key,
+                                retain_expired_request_leases=True)
+    assert result['retained_leases'] == 1
+    assert result['retained_request_leases'] == 2
+    assert len(result['retained_lease_ids']) == 1
+    assert conn.execute('SELECT * FROM cloud_leases ORDER BY id').fetchall() == originals
+    with target.connect() as db:
+        assert db.execute('SELECT * FROM legacy_cloud_leases ORDER BY id').fetchall() == originals
+        assert db.execute('SELECT state FROM viva_provider_coordination.leases WHERE account_hash=%s',
+                          (dispatcher.account_hash,)).fetchall() == [('UNCERTAIN',)]
+    assert dispatcher.reserve() is None
+
+
+def test_expired_request_archive_does_not_reserve_provider_capacity(legacy, provider_account):
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    original = ('request', 'request', 'http', 'HELD', 1.25, 0.5)
+    conn.execute('INSERT INTO cloud_leases VALUES(%s,%s,%s,%s,%s,%s)', original)
+    result = copy_legacy_schema(target, name, expected, retain_expired_request_leases=True)
+    assert result['retained_leases'] == 0
+    assert result['retained_request_leases'] == 1
+    assert result['retained_lease_ids'] == []
+    assert conn.execute('SELECT * FROM cloud_leases').fetchone() == original
+    with target.connect() as db:
+        assert db.execute('SELECT * FROM legacy_cloud_leases').fetchone() == original
+        assert db.execute('SELECT count(*) FROM viva_provider_coordination.leases WHERE account_hash=%s',
+                          (dispatcher.account_hash,)).fetchone() == (0,)
+    lease = dispatcher.reserve()
+    assert lease is not None
+    dispatcher.finish(lease)
+
+
+@pytest.mark.parametrize(('state', 'expiry'), [('HELD', 9999999999), ('STARTED', 1), ('UNCERTAIN', 1)])
+def test_request_retention_never_accepts_live_or_other_request_states(legacy, state, expiry):
+    target, name, expected, conn = legacy
+    conn.execute('INSERT INTO cloud_leases VALUES(%s,%s,%s,%s,%s,%s)',
+                 ('request', 'request', 'owner', state, expiry, 1))
+    with pytest.raises(UpgradeError, match='other legacy work'):
+        copy_legacy_schema(target, name, expected, retain_expired_request_leases=True)
+    assert conn.execute('SELECT count(*) FROM cloud_leases').fetchone() == (1,)
+    with target.connect() as db:
+        assert db.execute("SELECT to_regclass('legacy_cloud_leases')").fetchone() == (None,)
