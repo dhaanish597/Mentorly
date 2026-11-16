@@ -52,6 +52,7 @@ def test_existing_public_data_grants_fail_closed():
     with psycopg.connect(DSN,autocommit=True) as admin:
         admin.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(prod)))
         admin.execute(sql.SQL('CREATE TABLE {}.sessions(id text)').format(sql.Identifier(prod)))
+        admin.execute(sql.SQL('GRANT USAGE ON SCHEMA {} TO PUBLIC').format(sql.Identifier(prod)))
         admin.execute(sql.SQL('GRANT SELECT ON {}.sessions TO PUBLIC').format(sql.Identifier(prod)))
     try:
         with pytest.raises(ValueError,match='isolation failed'):
@@ -62,6 +63,66 @@ def test_existing_public_data_grants_fail_closed():
     finally:
         with psycopg.connect(DSN,autocommit=True) as admin:
             admin.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(prod)))
+
+
+def test_public_relation_grants_require_schema_usage():
+    from scripts.provision_preview_database import verify_isolation
+    suffix = uuid4().hex
+    schema, role, outside = 'stage_'+suffix, 'role_'+suffix, 'outside_'+suffix
+    with psycopg.connect(DSN, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(outside)))
+        admin.execute(sql.SQL('CREATE VIEW {}.metrics AS SELECT 1 AS value').format(sql.Identifier(outside)))
+        admin.execute(sql.SQL('GRANT SELECT ON {}.metrics TO PUBLIC').format(sql.Identifier(outside)))
+    try:
+        runtime_dsn = provision(DSN, schema, role)
+        with psycopg.connect(runtime_dsn, autocommit=True) as limited:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                limited.execute(sql.SQL('SELECT * FROM {}.metrics').format(sql.Identifier(outside)))
+        with psycopg.connect(DSN, autocommit=True) as admin:
+            verify_isolation(admin, role, schema)
+            admin.execute(sql.SQL('GRANT USAGE ON SCHEMA {} TO PUBLIC').format(sql.Identifier(outside)))
+            with pytest.raises(ValueError, match='isolation failed'):
+                verify_isolation(admin, role, schema)
+    finally:
+        with psycopg.connect(DSN, autocommit=True) as admin:
+            for name in (schema, outside):
+                admin.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(name)))
+            admin.execute(sql.SQL('DROP ROLE IF EXISTS {}').format(sql.Identifier(role)))
+
+
+def test_plpgsql_event_trigger_is_uncallable_but_scalar_security_definer_is_rejected():
+    from scripts.provision_preview_database import verify_isolation
+    suffix = uuid4().hex
+    schema, role, hooks = 'stage_'+suffix, 'role_'+suffix, 'hooks_'+suffix
+    with psycopg.connect(DSN, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(hooks)))
+        admin.execute(sql.SQL('GRANT USAGE ON SCHEMA {} TO PUBLIC').format(sql.Identifier(hooks)))
+        admin.execute(sql.SQL('CREATE TABLE {}.effects(id integer)').format(sql.Identifier(hooks)))
+        admin.execute(sql.SQL('''CREATE FUNCTION {}.on_ddl() RETURNS event_trigger LANGUAGE plpgsql
+            SECURITY DEFINER SET search_path=pg_catalog AS $body$
+            BEGIN INSERT INTO {}.effects VALUES(1); END; $body$''').format(sql.Identifier(hooks), sql.Identifier(hooks)))
+    try:
+        runtime_dsn = provision(DSN, schema, role)
+        with psycopg.connect(runtime_dsn, autocommit=True) as limited:
+            assert limited.execute('SELECT has_function_privilege(current_user,%s,\'EXECUTE\')', (hooks+'.on_ddl()',)).fetchone()[0]
+            for statement in ('SELECT {}.on_ddl()', 'SELECT {}.on_ddl()::text'):
+                with pytest.raises(psycopg.errors.FeatureNotSupported, match='trigger functions can only be called as triggers'):
+                    limited.execute(sql.SQL(statement).format(sql.Identifier(hooks)))
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                limited.execute(sql.SQL('CREATE EVENT TRIGGER {} ON ddl_command_end EXECUTE FUNCTION {}.on_ddl()').format(sql.Identifier('blocked_'+suffix), sql.Identifier(hooks)))
+        with psycopg.connect(DSN, autocommit=True) as admin:
+            assert admin.execute(sql.SQL('SELECT count(*) FROM {}.effects').format(sql.Identifier(hooks))).fetchone()[0] == 0
+            admin.execute(sql.SQL('''CREATE FUNCTION {}.scalar_definer() RETURNS text LANGUAGE plpgsql
+                SECURITY DEFINER SET search_path=pg_catalog AS $body$ BEGIN RETURN current_user; END; $body$''').format(sql.Identifier(hooks)))
+            with pytest.raises(ValueError, match='isolation failed'):
+                verify_isolation(admin, role, schema)
+        with psycopg.connect(runtime_dsn, autocommit=True) as limited:
+            assert limited.execute(sql.SQL('SELECT {}.scalar_definer()').format(sql.Identifier(hooks))).fetchone()[0]
+    finally:
+        with psycopg.connect(DSN, autocommit=True) as admin:
+            for name in (schema, hooks):
+                admin.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(name)))
+            admin.execute(sql.SQL('DROP ROLE IF EXISTS {}').format(sql.Identifier(role)))
 
 
 def test_offline_preparation_protects_secret(tmp_path,monkeypatch,capsys):

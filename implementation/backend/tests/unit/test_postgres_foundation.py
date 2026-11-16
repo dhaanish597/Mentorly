@@ -37,6 +37,8 @@ class Connection:
         self.executed.append((sql, params))
         if sql == "SHOW server_encoding":
             return Cursor([("UTF8",)])
+        if sql == "SELECT to_regclass('viva_schema_migrations')":
+            return Cursor([('viva_schema_migrations' if self.history else None,)])
         if sql.startswith("SELECT version"):
             return Cursor(self.history)
         if sql.startswith("INSERT INTO viva_schema_migrations"):
@@ -55,6 +57,7 @@ def test_apply_is_ordered_serialized_and_idempotent():
     assert conn.executed[2][0] == "SELECT pg_advisory_xact_lock(%s)"
     assert apply_migrations(conn, manifest) == []
     assert len(conn.history) == 2
+    assert sum(query.startswith('CREATE TABLE viva_schema_migrations') for query, _ in conn.executed) == 1
 
 
 def test_rejects_drift_missing_and_reordered_history_before_new_sql():

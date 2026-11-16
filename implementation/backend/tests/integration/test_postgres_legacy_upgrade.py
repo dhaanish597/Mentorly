@@ -206,3 +206,115 @@ def test_historical_timestamp_ties_have_deterministic_key_order(legacy):
     copy_legacy_schema(target, name, expected)
     with target.connect() as db:
         assert [r[0] for r in db.execute("SELECT id FROM studio_workspaces WHERE created_at='2026-02-01' ORDER BY _vcc_order")] == ['a-tied', 'z-tied']
+
+
+@pytest.fixture
+def provider_account(legacy):
+    from backend.app.db.postgres.account_dispatch import AccountDispatcher
+    target, _, _, conn = legacy
+    key = 'synthetic-account-' + uuid4().hex
+    dispatcher = AccountDispatcher(target, account_key=key, capacity=1)
+    try:
+        yield key, dispatcher
+    finally:
+        conn.execute('DELETE FROM viva_provider_coordination.leases WHERE account_hash=%s', (dispatcher.account_hash,))
+        conn.execute('DELETE FROM viva_provider_coordination.accounts WHERE account_hash=%s', (dispatcher.account_hash,))
+
+
+def test_explicit_uncertain_lease_retention_blocks_real_account_across_instances(legacy, provider_account):
+    from backend.app.db.postgres.account_dispatch import AccountDispatcher, DispatchUnavailable
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    original = ('lease', 'speech', 'legacy-owner', 'UNCERTAIN', 1.25, 0.5)
+    conn.execute('INSERT INTO cloud_leases VALUES(%s,%s,%s,%s,%s,%s)', original)
+    result = copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    assert result['retained_leases'] == 1
+    with target.connect() as db:
+        assert db.execute('SELECT * FROM legacy_cloud_leases').fetchone() == original
+        assert conn.execute('SELECT * FROM cloud_leases').fetchone() == original
+        retained = db.execute('SELECT id,state FROM viva_provider_coordination.leases WHERE account_hash=%s', (dispatcher.account_hash,)).fetchall()
+        assert retained == [(result['retained_lease_ids'][0], 'UNCERTAIN')]
+    assert dispatcher.reserve() is None
+    second = AccountDispatcher(target, account_key=key, capacity=1)
+    assert second.reserve() is None
+    with pytest.raises(DispatchUnavailable, match='active or uncertain'):
+        second.reconfigure_capacity(2)
+    with target.connect() as db:
+        assert db.execute('SELECT state FROM viva_provider_coordination.leases WHERE id=%s', (result['retained_lease_ids'][0],)).fetchone() == ('UNCERTAIN',)
+
+
+@pytest.mark.parametrize(('kind','state','expiry'), [
+    ('request','UNCERTAIN',1), ('speech','HELD',1), ('speech','STARTED',1),
+    ('speech','UNCERTAIN',9999999999),
+])
+def test_explicit_retention_refuses_other_outstanding_work(legacy, provider_account, kind, state, expiry):
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    conn.execute('INSERT INTO cloud_leases VALUES(%s,%s,%s,%s,%s,%s)', ('lease',kind,'owner',state,expiry,1))
+    with pytest.raises(UpgradeError, match='Only expired UNCERTAIN'):
+        copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    with target.connect() as db:
+        assert db.execute('SELECT count(*) FROM studio_workspaces').fetchone()[0] == 0
+        assert db.execute("SELECT to_regclass('legacy_cloud_leases')").fetchone()[0] is None
+        assert db.execute('SELECT count(*) FROM viva_provider_coordination.leases WHERE account_hash=%s', (dispatcher.account_hash,)).fetchone()[0] == 0
+
+
+def test_interrupted_uncertain_retention_rolls_back_account_bridge_and_retries(legacy, provider_account):
+    from backend.app.db.postgres.legacy_upgrade import frozen_legacy_schema
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    conn.execute("INSERT INTO cloud_leases VALUES('lease','speech','owner','UNCERTAIN',1,1)")
+    with pytest.raises(RuntimeError, match='interrupted'):
+        with frozen_legacy_schema(target, name) as frozen:
+            copy_legacy_schema(target, name, expected, frozen_connection=frozen,
+                               legacy_speech_account_key=key)
+            raise RuntimeError('interrupted')
+    with target.connect() as db:
+        assert db.execute("SELECT to_regclass('legacy_cloud_leases')").fetchone()[0] is None
+        assert db.execute('SELECT count(*) FROM viva_provider_coordination.leases WHERE account_hash=%s', (dispatcher.account_hash,)).fetchone()[0] == 0
+    result = copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    assert result['retained_leases'] == 1
+    assert dispatcher.reserve() is None
+
+
+def test_uncertain_retention_rejects_conflicting_existing_bridge(legacy, provider_account):
+    from uuid import NAMESPACE_URL, uuid5
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    conn.execute("INSERT INTO cloud_leases VALUES('lease','speech','owner','UNCERTAIN',1,1)")
+    bridge = 'legacy:' + str(uuid5(NAMESPACE_URL, name + ':lease'))
+    conn.execute("INSERT INTO viva_provider_coordination.leases(id,account_hash,state,expires_at,created_at) VALUES(%s,%s,'RELEASED',to_timestamp(1),to_timestamp(1))", (bridge,dispatcher.account_hash))
+    with pytest.raises(UpgradeError, match='conflicts'):
+        copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    with target.connect() as db:
+        assert db.execute('SELECT count(*) FROM studio_workspaces').fetchone()[0] == 0
+        assert db.execute("SELECT to_regclass('legacy_cloud_leases')").fetchone()[0] is None
+        assert db.execute('SELECT state FROM viva_provider_coordination.leases WHERE id=%s', (bridge,)).fetchone() == ('RELEASED',)
+
+
+def test_uncertain_retention_rejects_wider_existing_account_capacity(legacy, provider_account):
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    conn.execute("INSERT INTO cloud_leases VALUES('lease','speech','owner','UNCERTAIN',1,1)")
+    dispatcher.reconfigure_capacity(2)
+    with pytest.raises(UpgradeError, match='single-slot'):
+        copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    with target.connect() as db:
+        assert db.execute('SELECT count(*) FROM studio_workspaces').fetchone()[0] == 0
+        assert db.execute("SELECT to_regclass('legacy_cloud_leases')").fetchone()[0] is None
+
+
+def test_same_source_recopy_reuses_uncertain_bridge_without_duplicate_or_release(legacy, provider_account):
+    target, name, expected, conn = legacy
+    key, dispatcher = provider_account
+    conn.execute("INSERT INTO cloud_leases VALUES('lease','speech','owner','UNCERTAIN',1,1)")
+    first = copy_legacy_schema(target, name, expected, legacy_speech_account_key=key)
+    other = PostgresTarget(DSN, 'viva_runtime_' + uuid4().hex)
+    try:
+        initialize(other)
+        second = copy_legacy_schema(other, name, expected, legacy_speech_account_key=key)
+        assert second['retained_lease_ids'] == first['retained_lease_ids']
+        assert conn.execute('SELECT count(*) FROM viva_provider_coordination.leases WHERE account_hash=%s', (dispatcher.account_hash,)).fetchone()[0] == 1
+        assert dispatcher.reserve() is None
+    finally:
+        conn.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(other.schema)))

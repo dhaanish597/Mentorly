@@ -71,12 +71,16 @@ def apply_migrations(conn: Connection, migrations: Sequence[Migration]) -> list[
         if encoding_row[0] != "UTF8":
             raise MigrationError("PostgreSQL database must use UTF8 encoding")
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_MIGRATION_LOCK,))
-        conn.execute("""CREATE TABLE IF NOT EXISTS viva_schema_migrations (
+        # PostgreSQL checks schema CREATE even for CREATE TABLE IF NOT EXISTS
+        # when the table already exists. A provisioned runtime has only DML
+        # grants: inspect under the migration lock and avoid unnecessary DDL.
+        if conn.execute("SELECT to_regclass('viva_schema_migrations')").fetchone()[0] is None:
+            conn.execute("""CREATE TABLE viva_schema_migrations (
             version BIGINT PRIMARY KEY,
             name TEXT NOT NULL,
             checksum TEXT NOT NULL,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )""")
+            )""")
         rows = conn.execute(
             "SELECT version, name, checksum FROM viva_schema_migrations ORDER BY version"
         ).fetchall()

@@ -28,9 +28,10 @@ def verify_isolation(conn, role, schema, account_hash=None):
         JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname<>%s AND n.nspname NOT IN ('pg_catalog','information_schema')
         AND n.nspname NOT LIKE 'pg_toast%%' AND c.relkind IN ('r','p','v','m','f')
-        AND (has_table_privilege(%s,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-             OR has_any_column_privilege(%s,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')
-             OR pg_has_role(%s,c.relowner,'MEMBER'))''', (schema,role,role,role)).fetchall()
+        AND ((has_schema_privilege(%s,n.oid,'USAGE')
+              AND (has_table_privilege(%s,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                   OR has_any_column_privilege(%s,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')))
+             OR pg_has_role(%s,c.relowner,'MEMBER'))''', (schema,role,role,role,role)).fetchall()
     schemas = conn.execute('''SELECT nspname FROM pg_namespace WHERE nspname<>%s
         AND nspname NOT LIKE 'pg_%%' AND nspname<>'information_schema'
         AND has_schema_privilege(%s,oid,'CREATE')''',(schema,role)).fetchall()
@@ -38,9 +39,16 @@ def verify_isolation(conn, role, schema, account_hash=None):
         JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname<>%s
         AND n.nspname NOT LIKE 'pg_%%' AND c.relkind='S'
         AND CASE WHEN c.relkind='S' THEN has_sequence_privilege(%s,c.oid,'USAGE,SELECT,UPDATE') ELSE false END''',(schema,role)).fetchall()
+    # The built-in PL/pgSQL handler rejects event_trigger functions outside an
+    # event-trigger invocation before executing their body. PUBLIC EXECUTE on
+    # these functions is not direct-call access. This does not approve attached
+    # event-trigger behavior; operators must separately inspect installed DDL
+    # handlers. Ordinary SECURITY DEFINER functions remain a hard failure.
     functions = conn.execute('''SELECT p.oid::regprocedure::text FROM pg_proc p
         JOIN pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname<>%s AND p.prosecdef
+        AND NOT (p.prokind='f' AND p.prorettype='pg_catalog.event_trigger'::regtype
+                 AND p.prolang=(SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql'))
         AND has_schema_privilege(%s,n.oid,'USAGE') AND has_function_privilege(%s,p.oid,'EXECUTE')''',
         (schema,role,role)).fetchall()
     flags = conn.execute('SELECT rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolreplication,rolbypassrls FROM pg_roles WHERE rolname=%s',(role,)).fetchone()
