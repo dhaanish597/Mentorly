@@ -11,7 +11,8 @@ See [the authoritative release report](docs/engineering/PRODUCTION_RELEASE_20261
 - [x] Idempotency, capability denial, deployed persistence and synthetic audio delivery checked.
 - [x] Authenticated maintenance and daily scheduling configured; temporary acceptance token revoked.
 - [ ] Observe the next scheduled maintenance invocation.
-- [ ] Reconcile historical Gnani uncertainty and perform the approved bounded real voice acceptance.
+- [x] Retire the fenced legacy concurrency bridge with uncertain usage retained; pass the bounded real TTS/STT acceptance.
+- [ ] Obtain provider evidence of the historical request outcome; it remains charged and unknown.
 - [ ] Run genuine Linux/gVisor/Sandbox acceptance before enabling public custom-code execution.
 - [ ] Complete full feature acceptance before merging integration into main.
 

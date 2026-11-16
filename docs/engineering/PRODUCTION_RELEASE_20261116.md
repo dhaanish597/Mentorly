@@ -5,6 +5,16 @@
 **Deployment:** `dpl_5Z7VWaG86oqX4rsKGrmTBRjUjsrz` (`READY`, promoted; alias independently verified).  
 **Integration branch:** `codex/integrate-snapshots-20261115`; pushed. Subsequent documentation commits do not change the deployed application artifact. Git main is preserved pending complete feature acceptance.
 
+## Practice and voice incident follow-up — 16 November 2026
+
+The exact `ex4_sum_even?spec=v1_typed_bounded` page reproduced an internal error. Live SQL tracing found PostgreSQL42P01 on an unqualified sessions query: transaction pooling did not retain the adapter's autocommit SET search_path. The dedicated runtime role now has startup defaults for the application schema, UTC and bounded statement/lock timeouts. Raw pooled connections resolve the schema without SET. Provisioning now installs these defaults; 13 focused operator regressions passed and independent review approved the change. Application bytes remain6075e99; operator fix5bab970 is pushed.
+
+A fresh deployment `dpl_7GBxTS3qUxqa2CR2YF26us7PteTe` serves the existing hostname, replacing cached application connections. The deployed voice endpoint returned200 and176444 WAVbytes matching real provider audio. The exact browser page's Test voice action removed the internal-error banner and displayed Voice playing with the correct spoken transcript.
+
+The imported legacy concurrency bridge was explicitly retired as an operator risk decision after old worker/transport shutdown. This was not automatic TTL recovery or proof that the provider completed the old request. Its unknown183-character/one-call charge and original archives remain unchanged. Only that precisely matched legacy bridge was released; account capacity remains one.
+
+Bounded real acceptance used one63-character TTS request and one4.0-second REST STT request, with retries disabled. Both passed. STT transcript: “Voice is ready, you can change the volume or continue with text.”. The browser/deployed Test voice replay used the resulting shared cache. These results establish the bounded real voice path, not every microphone/device/language combination. The original blocked-voice state described below is historical; public custom-code execution is still disabled.
+
 ## Delivered behavior
 
 The complete integrated frontend and PostgreSQL coordinator now serve the existing hostname. The old `ADMISSION_UNAVAILABLE` / “Service is busy; retry shortly.” response was traced to unavailable legacy database authentication after the authorized reset. Public health, catalog, persisted lessons and frontend assets now return successfully. Browser validation loaded the dashboard and its existing saved practice drafts.
