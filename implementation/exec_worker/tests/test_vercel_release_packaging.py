@@ -103,6 +103,9 @@ def test_checked_in_templates_are_accepted(source, tmp_path):
     builder.build(source, tmp_path / 'artifact', allow_dirty=True)
     assert (tmp_path / 'artifact/.vercelignore').is_file()
     assert (tmp_path / 'artifact/.python-version').read_text().strip() == '3.12'
+    config = json.loads((tmp_path / 'artifact/vercel.json').read_text())
+    # Vercel rejects longer includeFiles expressions before starting a build.
+    assert len(config['functions']['api/index.py']['includeFiles']) <= 256
 
 
 @pytest.mark.parametrize('relative', [

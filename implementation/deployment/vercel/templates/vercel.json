@@ -9,7 +9,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 300,
-      "includeFiles": "{backend/app/**/*.json,backend/app/**/*.sql,config/branding.json,config/local-development.json,config/supabase-prod-ca-2021.crt,exec_worker/vercel_sandbox/*.sql,exec_worker/vercel_sandbox/native/*,exec_worker/vercel_sandbox/accepted-runtime.json,frontend-index.html}",
+      "includeFiles": "{backend/app/**/*.json,backend/app/**/*.sql,config/*,exec_worker/vercel_sandbox/**,frontend-index.html}",
       "excludeFiles": "{public/**,**/tests/**,**/__pycache__/**}"
     }
   },
