@@ -1,3 +1,5 @@
+> Executed cutover evidence and recovery boundary: [production release — 16 November](PRODUCTION_RELEASE_20261116.md). The initial procedure below predates the observed Supavisor prewarm classification and expired request-lease retention; use the executed evidence before any future operator action.
+
 > Current direct-production amendment — 16 November 2026. The user waived staging and authorized a maintenance outage and controlled Supabase password reset. Historical limitations below remain useful evidence, but the current execution procedure is the credential-fenced path described here. No production reset, DDL, copy or promotion has occurred.
 
 ## Authorized direct-production path

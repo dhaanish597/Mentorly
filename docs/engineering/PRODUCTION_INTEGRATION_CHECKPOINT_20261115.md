@@ -1,3 +1,5 @@
+> Current live release and remaining limitations: [production release — 16 November](PRODUCTION_RELEASE_20261116.md). The checkpoint below predates live cutover and is historical.
+
 # Mentorly production integration checkpoint — 16 November 2026
 
 Authoritative worktree: `/Users/dhaanish/.codex/worktrees/viva-integration-20261115`; branch `codex/integrate-snapshots-20261115`. The exact release identity is recorded by the immutable sibling artifact manifest, avoiding a self-referential commit hash in this document. Original worktrees and main are preserved; origin/main remains included in the candidate. No merge to main before release acceptance.

@@ -1,3 +1,5 @@
+> **Live release, 16 November 2026:** [current production report](docs/engineering/PRODUCTION_RELEASE_20261116.md). The integrated application is live at https://mentorly-coach.vercel.app. Historical plans and evidence follow; real voice/Sandbox acceptance remains incomplete.
+
 > Historical workstream record. Current integration and acceptance status: [production integration checkpoint](docs/engineering/PRODUCTION_INTEGRATION_CHECKPOINT_20261115.md). This document does not certify the current candidate.
 
 # Zero-cost deployment plan

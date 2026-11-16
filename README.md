@@ -1,3 +1,5 @@
+> **Live application:** [Mentorly](https://mentorly-coach.vercel.app) · [16 November production release evidence and limitations](docs/engineering/PRODUCTION_RELEASE_20261116.md).
+
 # Mentorly
 
 > **Release status:** Production integration and isolated-preview acceptance are tracked in [the current checkpoint](docs/engineering/PRODUCTION_INTEGRATION_CHECKPOINT_20261115.md). Public custom-code execution remains disabled pending real isolation acceptance. Test totals elsewhere in this document describe earlier checkpoints, not acceptance of the current release candidate.
