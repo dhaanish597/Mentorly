@@ -242,6 +242,11 @@ def provision_target(credentials, *, fence_verified, account_key,
             _prepare_coordination(conn)
             conn.execute(sql.SQL('CREATE ROLE {} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {}')
                          .format(sql.Identifier(role), sql.Literal(password)))
+            # Transaction poolers can switch backends between autocommit SET
+            # and the next query. Establish defaults at backend login as well.
+            conn.execute(sql.SQL('ALTER ROLE {} SET search_path TO {}, pg_catalog').format(sql.Identifier(role), sql.Identifier(schema)))
+            for setting, value in (('timezone', 'UTC'), ('statement_timeout', '15s'), ('lock_timeout', '5s')):
+                conn.execute(sql.SQL('ALTER ROLE {} SET {} TO {}').format(sql.Identifier(role), sql.Identifier(setting), sql.Literal(value)))
     target = PostgresTarget(credentials.admin_direct, schema)
     initialize(target)
     with frozen_legacy_schema(target, source_schema) as frozen:

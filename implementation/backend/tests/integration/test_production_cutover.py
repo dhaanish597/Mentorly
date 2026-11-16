@@ -168,6 +168,10 @@ def test_copy_restricted_runtime_and_source_preservation(dedicated_database):
     with psycopg.connect(dsn, autocommit=True) as conn:
         assert conn.execute('SELECT count(*) FROM viva_app.studio_workspaces').fetchone()[0] == 1
     with psycopg.connect(result['runtime_dsn'], autocommit=True) as runtime:
+        # A raw new backend must be correctly scoped without PostgresTarget's
+        # per-connection SET, which transaction pooling cannot preserve.
+        assert runtime.execute('SELECT current_schema()').fetchone() == (schema,)
+        assert runtime.execute('SELECT count(*) FROM studio_workspaces').fetchone() == (1,)
         assert runtime.execute(sql.SQL('SELECT count(*) FROM {}.studio_workspaces').format(sql.Identifier(schema))).fetchone()[0] == 1
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             runtime.execute('SELECT * FROM viva_app.studio_workspaces')
