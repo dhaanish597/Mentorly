@@ -638,3 +638,19 @@ def test_public_dns_is_pinned_and_mixed_resolution_fails_closed():
     with pytest.raises(ingest.ImportFailure):
         asyncio.run(PublicArchiveBackend(resolver=mixed, backend=Backend()).connect_tcp('gitlab.com', 443))
     assert len(connected) == 1
+
+
+def test_fastapi_core_sample_is_bounded_and_attributed(context):
+    files, coverage = ingest.golden('REPO-FASTAPI-CORE')
+    assert 'fastapi/applications.py' in files
+    assert 'fastapi/routing.py' in files
+    assert 'MIT License' in files['LICENSE']
+    assert 'a1b3be01aadc61c67edc09eed4f6cc1fcc3d3b8f' in files['SAMPLE_PROVENANCE.md']
+    assert coverage['total'] == len(files) < 100
+    _, client = context
+    response = client.post('/api/v1/repos/ingest', headers=headers(), json={
+        'source_kind': 'golden_curated', 'source_locator': 'REPO-FASTAPI-CORE'})
+    assert response.status_code == 202
+    snapshot = client.get('/api/v1/repos/' + response.json()['snapshot_id'], headers=headers())
+    assert snapshot.status_code == 200
+    assert snapshot.json()['status'] == 'READY'

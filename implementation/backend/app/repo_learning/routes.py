@@ -126,7 +126,7 @@ async def import_repo(request: Request, background_tasks: BackgroundTasks, works
             if not isinstance(obj,dict) or set(obj)!={'source_kind','source_locator'} or not isinstance(obj['source_locator'],str) or len(obj['source_locator'])>512: raise ingest.ImportFailure('invalid import request')
             source_kind=obj['source_kind']; locator=obj['source_locator']
             if source_kind not in ('golden_curated','public_git_url'): raise ingest.ImportFailure('unsupported source')
-            if source_kind=='golden_curated' and locator not in ('REPO-EXP-01','REPO-EXP-02'): raise ingest.ImportFailure('unknown golden repository')
+            if source_kind=='golden_curated' and locator not in ('REPO-EXP-01','REPO-EXP-02','REPO-FASTAPI-CORE'): raise ingest.ImportFailure('unknown golden repository')
         else: raise ingest.ImportFailure('unsupported content type')
         request_hash = idempotency.fingerprint({'source_kind': source_kind, 'source_locator': locator, 'archive_hash': ingest.digest(raw) if raw is not None else None})
         response, created = await run_in_threadpool(service.queue_import,db,workspace,source_kind,locator if source_kind=='golden_curated' else None,request_hash,key)

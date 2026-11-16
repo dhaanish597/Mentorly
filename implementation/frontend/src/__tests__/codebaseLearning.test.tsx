@@ -156,6 +156,10 @@ describe('CodebaseOnboarding Component', () => {
 
     await waitFor(() => {
       expect(onSessionReady).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'cls_session_abc123' }));
+      const ingestCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/repos/ingest'));
+      expect(JSON.parse(String(ingestCall?.[1]?.body))).toEqual({ source_kind: 'golden_curated', source_locator: 'REPO-FASTAPI-CORE' });
+      const sessionCall = fetchSpy.mock.calls.find(([url, init]) => String(url).includes('/codebase-learning/sessions') && init?.method === 'POST');
+      expect(JSON.parse(String(sessionCall?.[1]?.body))).toMatchObject({ repo_url: 'https://github.com/fastapi/fastapi', repo_name: 'fastapi/fastapi' });
     });
   });
 

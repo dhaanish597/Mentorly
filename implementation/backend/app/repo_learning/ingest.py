@@ -269,7 +269,7 @@ def unpack(data: bytes) -> tuple[dict[str, str], dict[str, int]]:
     return files, coverage
 
 def golden(name: str) -> tuple[dict[str, str], dict[str, int]]:
-    choices = {'REPO-EXP-01': 'viva', 'REPO-EXP-02': 'webhookref'}
+    choices = {'REPO-EXP-01': 'viva', 'REPO-EXP-02': 'webhookref', 'REPO-FASTAPI-CORE': 'fastapi'}
     if name not in choices: raise ImportFailure('unknown golden repository')
     root = Path(__file__).parent / 'golden' / (choices[name] + '.json')
     data = json.loads(root.read_text(encoding='utf-8'))

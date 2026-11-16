@@ -11,7 +11,7 @@ export type CodebaseOnboardingProps = {
 };
 
 const SAMPLE_REPOS = [
-  { label: 'FastAPI (Python)', url: 'https://github.com/fastapi/fastapi' },
+  { label: 'FastAPI (Python) — core sample', url: 'https://github.com/fastapi/fastapi' },
   { label: 'Flask (Python)', url: 'https://github.com/pallets/flask' },
   { label: 'Architecture Baseline', url: 'REPO-EXP-01', isGolden: true },
 ];
@@ -69,7 +69,8 @@ export function CodebaseOnboarding({
       return;
     }
 
-    const isGolden = inputUrl === 'REPO-EXP-01' || inputUrl === 'REPO-EXP-02';
+    const isFastApiSample = /^https:\/\/github\.com\/fastapi\/fastapi(?:\.git)?\/?$/i.test(inputUrl);
+    const isGolden = isFastApiSample || inputUrl === 'REPO-EXP-01' || inputUrl === 'REPO-EXP-02';
     if (!isGolden && !/github\.com\/[^/]+\/[^/]+/i.test(inputUrl)) {
       setError('Please provide a valid GitHub repository URL (e.g. https://github.com/owner/repository).');
       return;
@@ -92,13 +93,12 @@ export function CodebaseOnboarding({
 
     try {
       let snapshot = attempt.snapshot;
-      const isGolden = inputUrl === 'REPO-EXP-01' || inputUrl === 'REPO-EXP-02';
 
       if (snapshot) {
         setProgressMsg('Resuming repository preparation…');
       } else if (isGolden) {
-        setProgressMsg('Loading curated architectural snapshot…');
-        snapshot = await ingestGoldenRepo(workspace, inputUrl);
+        setProgressMsg(isFastApiSample ? 'Loading pinned FastAPI core-source sample…' : 'Loading curated architectural snapshot…');
+        snapshot = await ingestGoldenRepo(workspace, isFastApiSample ? 'REPO-FASTAPI-CORE' : inputUrl);
       } else {
         setProgressMsg('Downloading repository snapshot and parsing files…');
         snapshot = await ingestRepoUrl(workspace, inputUrl);
@@ -141,7 +141,7 @@ export function CodebaseOnboarding({
 
       // Extract repo name
       let repoName = 'repository';
-      if (!isGolden) {
+      if (!isGolden || isFastApiSample) {
         const parts = inputUrl.replace(/\/$/, '').split('/');
         repoName = parts.slice(-2).join('/').replace(/\.git$/, '');
       } else {
@@ -150,7 +150,7 @@ export function CodebaseOnboarding({
 
       const session = await createSession(workspace, {
         snapshot_id: snapshot.snapshot_id,
-        repo_url: isGolden ? 'https://github.com/mentorly/reference' : inputUrl,
+        repo_url: isGolden && !isFastApiSample ? 'https://github.com/mentorly/reference' : inputUrl,
         repo_name: repoName,
         title: `Exploring ${repoName}`,
       }, attempt.key);
