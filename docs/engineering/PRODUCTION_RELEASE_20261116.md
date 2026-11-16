@@ -13,7 +13,7 @@ A fresh deployment `dpl_7GBxTS3qUxqa2CR2YF26us7PteTe` serves the existing hostna
 
 The imported legacy concurrency bridge was explicitly retired as an operator risk decision after old worker/transport shutdown. This was not automatic TTL recovery or proof that the provider completed the old request. Its unknown183-character/one-call charge and original archives remain unchanged. Only that precisely matched legacy bridge was released; account capacity remains one.
 
-Bounded real acceptance used one63-character TTS request and one4.0-second REST STT request, with retries disabled. Both passed. STT transcript: “Voice is ready, you can change the volume or continue with text.”. The browser/deployed Test voice replay used the resulting shared cache. These results establish the bounded real voice path, not every microphone/device/language combination. The original blocked-voice state described below is historical; public custom-code execution is still disabled.
+Bounded real acceptance used one64-character TTS request and one4.0-second REST STT request, with retries disabled. Both passed. STT transcript: “Voice is ready, you can change the volume or continue with text.”. The browser/deployed Test voice replay used the resulting shared cache. These results establish the bounded real voice path, not every microphone/device/language combination. The original blocked-voice state described below is historical; public custom-code execution is still disabled.
 
 ## Delivered behavior
 
