@@ -121,6 +121,9 @@ def create(db_path: str, workspace: str, source_kind: str, files: dict[str,str],
         changed=db.execute("UPDATE repo_snapshots SET status='INDEXING' WHERE id=? AND workspace_id=? AND status='QUEUED'",(snapshot_id,workspace)).rowcount
         if changed != 1: raise ValueError('ingestion unavailable')
     try:
+        with closing(open_connection(db_path)) as db:
+            source=db.execute('SELECT source_locator FROM repo_snapshots WHERE id=?',(snapshot_id,)).fetchone()
+            source_locator=source['source_locator'] if source else None
         paths=sorted(files); structures={}
         for number, path in enumerate(paths, 1):
             structures[path]=structure(path,files[path])
@@ -135,28 +138,44 @@ def create(db_path: str, workspace: str, source_kind: str, files: dict[str,str],
         from backend.app.repo_learning.analyzer import analyze_repository
         arch = analyze_repository(files, structures)
         coverage = dict(coverage, architecture=arch, parsed=sum(x['status']=='parsed' for x in structures.values()), lexical=sum(x['status']=='lexical' for x in structures.values()), parse_errors=sum(x['status'] not in ('parsed','lexical') for x in structures.values()))
+        prospective_bytes = _snapshot_charge(files, structures)
+        # Reject an individually oversized snapshot before duplicating its text
+        # into batch parameters. The locked check below still enforces combined
+        # workspace/global usage against concurrent imports.
+        if prospective_bytes > min(WORKSPACE_BYTE_LIMIT, GLOBAL_BYTE_LIMIT):
+            raise QuotaExceeded('repository storage quota exceeded')
+        file_rows, chunk_rows, fts_rows = [], [], []
+        first_chunks = {}
+        for p in paths:
+            file_id=make_id(); info=structures[p]; text=files[p]
+            file_rows.append((file_id,snapshot_id,p,text,hashes[p],info['language'],info['status'],json.dumps(info['imports']),json.dumps(info['calls']),json.dumps(info['symbols']),ranks[p]))
+            lines=text.splitlines(keepends=True)
+            for symbol,start,end in chunk_spans(text, info):
+                part=''.join(lines[start-1:end]); chunk_id=make_id(); ch=digest(part.encode())
+                chunk_rows.append((chunk_id,snapshot_id,file_id,p,symbol,start,end,ch,part))
+                fts_rows.append((chunk_id,snapshot_id,part))
+                if p not in first_chunks or start < first_chunks[p]['start_line']:
+                    first_chunks[p] = {'path':p,'symbol':symbol,'start_line':start,'end_line':end,'chunk_hash':ch}
+        card_rows = []
+        if source_locator == 'REPO-EXP-01':
+            curated=('backend/app/main.py','backend/app/api/routes_sessions.py','backend/app/orchestration/worker_client.py','backend/app/orchestration/state_machine.py','backend/app/speech/routes.py','backend/app/db/repository.py','exec_worker/worker_app/sandbox_runner.py','exec_worker/worker_app/verifier_harness.py')
+            for path in curated:
+                citation=first_chunks.get(path)
+                if citation:
+                    card={'topic':'Inspect '+path,'observed_code':[citation],'explicit_docs':[],'inferred_rationale':[],'learner_alternative':None,'author_intent_verifiable':False}
+                    card_rows.append((make_id(),snapshot_id,workspace,card['topic'],json.dumps(card),now(),'curated'))
         with closing(open_connection(db_path)) as db:
             db.execute('BEGIN IMMEDIATE')
-            _check_quota(db,workspace,_snapshot_charge(files, structures),snapshot_id)
-            for p in paths:
-                file_id=make_id(); info=structures[p]; text=files[p]
-                db.execute('INSERT INTO repo_files VALUES (?,?,?,?,?,?,?,?,?,?,?)',(file_id,snapshot_id,p,text,hashes[p],info['language'],info['status'],json.dumps(info['imports']),json.dumps(info['calls']),json.dumps(info['symbols']),ranks[p]))
-                lines=text.splitlines(keepends=True)
-                for symbol,start,end in chunk_spans(text, info):
-                    part=''.join(lines[start-1:end]); chunk_id=make_id(); ch=digest(part.encode())
-                    db.execute('INSERT INTO repo_chunks VALUES (?,?,?,?,?,?,?,?,?)',(chunk_id,snapshot_id,file_id,p,symbol,start,end,ch,part))
-                    db.execute('INSERT INTO repo_chunks_fts(chunk_id,snapshot_id,text) VALUES (?,?,?)',(chunk_id,snapshot_id,part))
+            _check_quota(db,workspace,prospective_bytes,snapshot_id)
+            # Native PostgreSQL pipelines these batches rather than paying a
+            # network round trip per row while holding the publication lock.
+            db.executemany('INSERT INTO repo_files VALUES (?,?,?,?,?,?,?,?,?,?,?)',file_rows)
+            db.executemany('INSERT INTO repo_chunks VALUES (?,?,?,?,?,?,?,?,?)',chunk_rows)
+            db.executemany('INSERT INTO repo_chunks_fts(chunk_id,snapshot_id,text) VALUES (?,?,?)',fts_rows)
             updated = db.execute("UPDATE repo_snapshots SET status='READY',snapshot_hash=?,total_files=?,files_indexed=?,coverage_json=? WHERE id=? AND status='INDEXING' AND EXISTS (SELECT 1 FROM studio_workspaces w WHERE w.id=repo_snapshots.workspace_id AND w.deleted_at IS NULL AND w.expires_at>?)",(snapshot_hash,coverage['total'],len(files),json.dumps(coverage),snapshot_id,now())).rowcount
             if updated != 1: raise ValueError('workspace unavailable')
-            source=db.execute('SELECT source_locator FROM repo_snapshots WHERE id=?',(snapshot_id,)).fetchone()
-            if source and source['source_locator']=='REPO-EXP-01':
-                curated=('backend/app/main.py','backend/app/api/routes_sessions.py','backend/app/orchestration/worker_client.py','backend/app/orchestration/state_machine.py','backend/app/speech/routes.py','backend/app/db/repository.py','exec_worker/worker_app/sandbox_runner.py','exec_worker/worker_app/verifier_harness.py')
-                for path in curated:
-                    chunk=db.execute('SELECT path,symbol,start_line,end_line,chunk_hash FROM repo_chunks WHERE snapshot_id=? AND path=? ORDER BY start_line LIMIT 1',(snapshot_id,path)).fetchone()
-                    if chunk:
-                        citation=dict(chunk)
-                        card={'topic':'Inspect '+path,'observed_code':[citation],'explicit_docs':[],'inferred_rationale':[],'learner_alternative':None,'author_intent_verifiable':False}
-                        db.execute('INSERT INTO repo_evidence_cards VALUES (?,?,?,?,?,?,?)',(make_id(),snapshot_id,workspace,card['topic'],json.dumps(card),now(),'curated'))
+            if card_rows:
+                db.executemany('INSERT INTO repo_evidence_cards VALUES (?,?,?,?,?,?,?)',card_rows)
             db.commit()
     except Exception as exc:
         with closing(open_connection(db_path)) as db:

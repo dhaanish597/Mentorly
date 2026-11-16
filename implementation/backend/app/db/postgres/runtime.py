@@ -74,7 +74,12 @@ class PostgresTarget:
                 raise DatabaseConfigurationError('One explicit PostgreSQL host is required.')
             if not local and options.get('sslmode') != 'verify-full':
                 raise DatabaseConfigurationError('Remote PostgreSQL requires verified TLS.')
-            conn = psycopg.connect(self.dsn, autocommit=True, connect_timeout=5)
+            # Supabase's transaction pool cannot retain named prepared
+            # statements across transactions. None also disables executemany's
+            # forced preparation while preserving its protocol pipelining.
+            conn = psycopg.connect(
+                self.dsn, autocommit=True, connect_timeout=5, prepare_threshold=None
+            )
             # Identifiers are quoted, never concatenated with credentials.
             conn.execute(
                 sql.SQL("SET search_path TO {}, pg_catalog").format(
@@ -464,6 +469,48 @@ class Connection:
             if params:
                 rendered = re.sub(r"%(?!s)", "%%", rendered)
             cursor = self._conn.execute(rendered, params if params else None)
+            return Cursor(cursor)
+        except (psycopg.IntegrityError, psycopg.errors.RaiseException) as exc:
+            raise sqlite3.IntegrityError(
+                f"PostgreSQL integrity constraint rejected the operation ({exc.sqlstate})."
+            ) from None
+        except psycopg.Error as exc:
+            raise sqlite3.OperationalError(
+                f"PostgreSQL operation failed ({exc.sqlstate})."
+            ) from None
+
+    def executemany(self, query: str, params_seq):
+        """Pipeline authored INSERT batches inside a caller-owned transaction.
+
+        Repository indexing already holds BEGIN IMMEDIATE's serialization and
+        quota check. psycopg's executemany pipelines its parameter sets, avoiding
+        one network round trip per row. No implicit commit or recovery occurs.
+        """
+        import psycopg
+
+        if not self.in_transaction:
+            raise sqlite3.ProgrammingError("PostgreSQL batches require an explicit transaction.")
+        statement = query.strip().rstrip(";")
+        tokens = _tokens(statement)
+        words = [value.upper() for kind, value in tokens if kind == "word"]
+        if (words[:2] != ["INSERT", "INTO"] or "RETURNING" in words
+                or any(kind == "punct" and value == ";" for kind, value in tokens)):
+            raise sqlite3.ProgrammingError("PostgreSQL batches support one INSERT without RETURNING.")
+        try:
+            from .maintenance import maintenance_fence
+
+            fence = maintenance_fence.get()
+            if fence is not None and fence.target_id == str(self.target):
+                row = self._conn.execute(
+                    "SELECT owner,generation,expires_at>clock_timestamp() FROM runtime_maintenance_owner WHERE id='retention' FOR UPDATE"
+                ).fetchone()
+                if row != (fence.owner, fence.generation, True):
+                    self.rollback()
+                    raise sqlite3.OperationalError("Maintenance lease was superseded or expired.")
+            rendered = dialect_sql(statement, primary_keys=self._primary_keys)
+            rendered = re.sub(r"%(?!s)", "%%", rendered)
+            cursor = self._conn.cursor()
+            cursor.executemany(rendered, params_seq)
             return Cursor(cursor)
         except (psycopg.IntegrityError, psycopg.errors.RaiseException) as exc:
             raise sqlite3.IntegrityError(
